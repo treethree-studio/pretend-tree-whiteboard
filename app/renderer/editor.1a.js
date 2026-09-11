@@ -1,0 +1,130 @@
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const app=$('#app'),canvas=$('#canvas'),world=$('#world'),elementsRoot=$('#elements'),labelsRoot=$('#labels');
+const connectorGroup=$('#connectorGroup'),drawingGroup=$('#drawingGroup'),draftConnector=$('#draftConnector');
+const boardTitle=$('#boardTitle'),floatingBar=$('#floatingBar'),colorPopover=$('#colorPopover'),arrangePopover=$('#arrangePopover'),textAlignPopover=$('#textAlignPopover'),objectMenu=$('#objectMenu');
+const marquee=$('#marquee'),guideV=$('#guideV'),guideH=$('#guideH');
+const endpointFrom=$('#endpointFrom'),endpointTo=$('#endpointTo'),eraserCursor=$('#eraserCursor');
+const groupBox=$('#groupBox'),groupRotate=$('#groupRotate');
+const minimap=$('#minimap'),mm=minimap.getContext('2d'),miniWrap=$('#miniWrap'),dropOverlay=$('#dropOverlay'),toast=$('#toast'),imageInput=$('#imageInput');
+
+const PALETTES={
+  soft:['#FFF2A7','#DFEEFF','#E3F2D3','#E9DDFF','#FFE3E9','#FFFFFF'],
+  classic:['#FFD84D','#78B7FF','#67D58B','#FF8B9B','#B99AFF','#FFFFFF'],
+  mono:['#FFFFFF','#F0F0EE','#D4D4D1','#8A8A86','#202020','#7267FF']
+};
+const LINE_COLORS=['#202020','#666666','#E85D5D','#4263EB','#7267FF','#3A8F65'];
+const DEFAULTS={
+  sticky:'#FFF2A7', text:'#202020', line:'#202020', shapeFill:'transparent', shapeStroke:'#202020'
+};
+
+let state={
+  title:'Untitled Board',
+  camera:{x:0,y:0,scale:1},
+  tool:'select',
+  objects:[],
+  selection:[],
+  pen:{color:'#202020',width:4},
+  eraserRadius:14
+};
+let history=[],future=[],gestureBefore=null;
+let copiedPayload=null;
+let spaceDown=false,panning=null,dragging=null,resizing=null,rotating=null,drawingGesture=null,erasing=null,marqueeStart=null;
+let connectorDraft=null,endpointDrag=null,labelDrag=null,groupTransform=null;
+let dirtyVectors=false,dirtyMini=false,rafPending=false;
+let saveTimer=null,toastTimer=null;
+let recentColors=[];
+let paletteApply=null,paletteAllowTransparent=false;
+let menuTargetIds=[];
+let assetUrlCache=new Map(),assetBlobCache=new Map();
+
+const uid=(p='o')=>p+Math.random().toString(36).slice(2,10);
+const deep=o=>JSON.parse(JSON.stringify(o));
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const getObj=id=>state.objects.find(o=>o.id===id);
+const selectedObjs=()=>state.selection.map(getObj).filter(Boolean);
+const isVector=o=>o&&['drawing','connector'].includes(o.type);
+const isElement=o=>o&&!isVector(o);
+const linkable=o=>o&&['sticky','text','rect','circle','image'].includes(o.type);
+const zMax=()=>Math.max(1,...state.objects.map(o=>o.z||1));
+const modelSnapshot=()=>JSON.stringify({objects:state.objects});
+const sameSnapshot=(a,b)=>a===b;
+const groupMembers=gid=>state.objects.filter(o=>o.groupId&&o.groupId===gid);
+const unlockedSelected=()=>selectedObjs().filter(o=>!o.locked);
+function selectionWithGroup(id,inner=false){
+  const o=getObj(id);if(!o)return[];
+  if(o.groupId&&!inner)return groupMembers(o.groupId).map(x=>x.id);
+  return[id];
+}
+function translateObject(o,dx,dy){
+  if(!o||o.locked)return;
+  if(isElement(o)){o.x+=dx;o.y+=dy}
+  else if(o.type==='drawing')o.points=o.points.map(p=>({x:p.x+dx,y:p.y+dy}));
+  else if(o.type==='connector'){
+    if(!o.from?.id){o.from.x+=dx;o.from.y+=dy}
+    if(!o.to?.id){o.to.x+=dx;o.to.y+=dy}
+  }
+}
+function cubicTangent(g,t){
+  const u=1-t;return{
+    x:3*u*u*(g.c1.x-g.p1.x)+6*u*t*(g.c2.x-g.c1.x)+3*t*t*(g.p2.x-g.c2.x),
+    y:3*u*u*(g.c1.y-g.p1.y)+6*u*t*(g.c2.y-g.c1.y)+3*t*t*(g.p2.y-g.c2.y)
+  };
+}
+function nearestTOnConnector(o,p){
+  const g=connectorGeom(o);let bestT=.5,best=Infinity;
+  for(let i=0;i<=100;i++){const t=i/100,q=bezierPoint(g,t),d=dist(q,p);if(d<best){best=d;bestT=t}}
+  return bestT;
+}
+
+function showToast(msg){
+  toast.textContent=msg;toast.classList.add('show');clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>toast.classList.remove('show'),1300);
+}
+function updateUndoRedo(){
+  $('#undoBtn').disabled=!history.length;$('#redoBtn').disabled=!future.length;
+}
+function pushHistory(before){
+  if(!before||sameSnapshot(before,modelSnapshot()))return false;
+  history.push(before);if(history.length>80)history.shift();future=[];updateUndoRedo();return true;
+}
+function beginGesture(){gestureBefore=modelSnapshot()}
+function commitGesture(){
+  if(gestureBefore){pushHistory(gestureBefore);gestureBefore=null}
+  scheduleSave();
+}
+function cancelGesture(){gestureBefore=null}
+function discrete(fn){
+  const before=modelSnapshot();fn();pushHistory(before);scheduleSave();
+}
+function undo(){
+  if(!history.length)return;
+  future.push(modelSnapshot());
+  const snap=JSON.parse(history.pop());state.objects=snap.objects;state.selection=[];
+  renderAll();scheduleSave();updateUndoRedo();
+}
+function redo(){
+  if(!future.length)return;
+  history.push(modelSnapshot());
+  const snap=JSON.parse(future.pop());state.objects=snap.objects;state.selection=[];
+  renderAll();scheduleSave();updateUndoRedo();
+}
+
+function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(saveState,650)}
+let desktopSaving=false,desktopSaveAgain=false;
+function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(blob)})}
+function dataUrlToBlob(dataUrl){const [meta,b64]=String(dataUrl).split(',');const mime=(meta.match(/data:([^;]+)/)||[])[1]||'application/octet-stream';const bin=atob(b64||''),arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return new Blob([arr],{type:mime})}
+async function serializeTreeboard(){const assets={};for(const o of state.objects.filter(x=>x.type==='image'&&x.assetId)){if(assets[o.assetId])continue;try{const blob=await getAssetBlob(o.assetId);if(blob)assets[o.assetId]=await blobToDataUrl(blob)}catch(e){}}let preview=null;try{preview=minimap.toDataURL('image/png')}catch(e){}return{format:'treeboard',version:1,title:state.title,camera:state.camera,objects:state.objects,assets,preview,updatedAt:new Date().toISOString()}}
+async function hydrateTreeboard(board){state.title=board?.title||'未命名白板';state.camera=board?.camera||{x:0,y:0,scale:1};state.objects=deep(board?.objects||[]);state.selection=[];const remap=new Map();for(const [oldId,dataUrl] of Object.entries(board?.assets||{})){try{const newId=await putAsset(dataUrlToBlob(dataUrl));remap.set(oldId,newId)}catch(e){}}state.objects.forEach(o=>{if(o.type==='image'&&o.assetId&&remap.has(o.assetId))o.assetId=remap.get(o.assetId)});boardTitle.textContent=state.title}
+function flashSaved(text='已保存'){const el=document.getElementById('saveStatus');el.textContent=text;el.classList.add('show');clearTimeout(flashSaved.t);flashSaved.t=setTimeout(()=>el.classList.remove('show'),900)}
+async function saveState(){if(window.treeboardDesktop){if(desktopSaving){desktopSaveAgain=true;return}desktopSaving=true;flashSaved('正在保存…');try{const board=await serializeTreeboard();const result=await window.treeboardDesktop.saveCurrent(board);if(result?.ok)flashSaved('已保存');else showToast(result?.error||'保存失败')}catch(err){console.error(err);showToast('保存失败')}finally{desktopSaving=false;if(desktopSaveAgain){desktopSaveAgain=false;scheduleSave()}}return}try{localStorage.setItem('minimal_whiteboard_desktop_fallback',JSON.stringify({title:state.title,camera:state.camera,objects:state.objects}))}catch(err){}}
+function loadState(){try{const raw=localStorage.getItem('minimal_whiteboard_desktop_fallback');if(!raw)return false;const d=JSON.parse(raw);state.title=d.title||'未命名白板';state.camera=d.camera||state.camera;state.objects=d.objects||[];boardTitle.textContent=state.title;return true}catch(e){return false}}
+async function flushSave(){clearTimeout(saveTimer);desktopSaveAgain=false;while(desktopSaving)await new Promise(r=>setTimeout(r,40));await saveState();while(desktopSaving)await new Promise(r=>setTimeout(r,40))}
+function loadRecentColors(){
+  try{recentColors=JSON.parse(localStorage.getItem('minimal_whiteboard_v5_recent_colors')||'[]')}catch(e){recentColors=[]}
+}
+function rememberColor(c){
+  if(!c||c==='transparent')return;
+  recentColors=[c,...recentColors.filter(x=>x.toLowerCase()!==c.toLowerCase())].slice(0,6);
+  localStorage.setItem('minimal_whiteboard_v5_recent_colors',JSON.stringify(recentColors));
+}
