@@ -1,1 +1,2 @@
 Official brand asset source: logo.png supplied by the product owner. Windows app.ico is generated from logo.png during CI/build so the installed app, shortcuts, and .treeboard association use the same brand mark.
+Current official logo blob: b8df87436894870eac08993a59fbdded623a0828.
