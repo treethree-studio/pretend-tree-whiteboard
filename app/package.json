@@ -1,14 +1,57 @@
 {
   "name": "pretend-tree-whiteboard",
   "version": "0.1.0-alpha",
-  "description": "假装一棵树 - 极简本地优先无限白板",
+  "description": "假装一棵树 - 本地优先极简白板",
   "main": "main.js",
+  "productName": "假装一棵树",
+  "author": "Pretend Tree",
+  "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win"
+    "dist:win": "electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "electron": "44.3.0",
-    "electron-builder": "26.0.0"
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.pretendtree.whiteboard",
+    "productName": "假装一棵树",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/app.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "假装一棵树"
+    },
+    "fileAssociations": [
+      {
+        "ext": "treeboard",
+        "name": "假装一棵树 白板",
+        "description": "假装一棵树 白板文件",
+        "icon": "assets/app.ico",
+        "role": "Editor"
+      }
+    ]
   }
 }
