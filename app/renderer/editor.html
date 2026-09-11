@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>假装一棵树</title>
+  <link rel="stylesheet" href="./editor.css">
+
+</head>
+<body>
+<div id="app">
+  <div id="canvas">
+    <div id="world">
+      <svg id="vectorLayer" width="1" height="1">
+        <defs>
+          <marker id="arrowEnd" markerWidth="10" markerHeight="10" refX="8.4" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
+            <path d="M0,0 L0,6 L8.5,3 z" fill="context-stroke"></path>
+          </marker>
+        </defs>
+        <g id="connectorGroup"></g>
+        <g id="drawingGroup"></g>
+        <path id="draftConnector" d="" fill="none" stroke="#7267ff" stroke-width="2.3" stroke-linecap="round" stroke-dasharray="5 5" style="display:none"></path>
+      </svg>
+      <div id="labels"></div>
+      <div id="elements"></div>
+    </div>
+    <div id="marquee" hidden></div>
+    <div id="guideV" class="guide v"></div>
+    <div id="guideH" class="guide h"></div>
+  </div>
+
+  <div id="dragStrip"></div>
+  <button id="homeBtn" title="返回首页"><svg class="ico" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"></path></svg></button>
+  <div id="boardTitle" contenteditable="true" spellcheck="false">未命名白板</div>
+  <div id="saveStatus">已保存</div>
+  <div id="windowButtons"><button id="minWin">—</button><button id="maxWin">□</button><button id="closeWin" class="close">×</button></div>
+
+  <div id="topActions" class="ui">
+    <button id="exportBtn" class="iconBtn" title="导出 PNG">
+      <svg class="ico" viewBox="0 0 24 24"><path d="M12 4v11"></path><path d="M8.5 11.5L12 15l3.5-3.5"></path><path d="M5 20h14"></path></svg>
+    </button>
+  </div>
+  <div id="exportMenu"><button id="exportPngItem">导出 PNG</button><button id="exportPdfItem">导出 PDF</button></div>
+
+  <div id="toolbar" class="ui">
+    <button class="tool active" data-tool="select"><svg class="ico" viewBox="0 0 24 24"><path d="M5 3l13 8-6 2-2 6L5 3z"></path></svg><span class="tip">选择 V</span></button>
+    <button class="tool" data-tool="sticky"><svg class="ico" viewBox="0 0 24 24"><path d="M5 4h14v12l-4 4H5z"></path><path d="M15 20v-4h4"></path></svg><span class="tip">便签 N</span></button>
+    <button class="tool" data-tool="text"><svg class="ico" viewBox="0 0 24 24"><path d="M5 5h14"></path><path d="M12 5v14"></path></svg><span class="tip">文字 T</span></button>
+    <button class="tool" data-tool="pen"><svg class="ico" viewBox="0 0 24 24"><path d="M4 20l4-1 10-10a2 2 0 0 0-3-3L5 16z"></path><path d="M13.5 8.5l3 3"></path></svg><span class="tip">画笔 P</span></button>
+    <button class="tool" data-tool="eraser"><svg class="ico" viewBox="0 0 24 24"><path d="M7 18l-3-3a2 2 0 0 1 0-2.8L11.2 5a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L15.8 18H7z"></path><path d="M10 8l6 6"></path><path d="M8 21h11"></path></svg><span class="tip">橡皮擦 E</span></button>
+    <button class="tool" data-tool="connector"><svg class="ico" viewBox="0 0 24 24"><path d="M5 18L19 6"></path><path d="M13 6h6v6"></path></svg><span class="tip">连线 C</span></button>
+    <div class="sep"></div>
+    <button class="tool" data-tool="circle"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle></svg><span class="tip">圆形 O</span></button>
+    <button class="tool" data-tool="rect"><svg class="ico" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"></rect></svg><span class="tip">矩形 R</span></button>
+    <button class="tool" data-tool="image"><svg class="ico" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.3"></circle><path d="M6 17l4-4 3 3 2-2 3 3"></path></svg><span class="tip">图片 I</span></button>
+    <div class="sep"></div>
+    <button id="undoBtn" class="tool"><svg class="ico" viewBox="0 0 24 24"><path d="M8 8L4 12l4 4"></path><path d="M4 12h9a6 6 0 0 1 6 6"></path></svg><span class="tip">撤销</span></button>
+    <button id="redoBtn" class="tool"><svg class="ico" viewBox="0 0 24 24"><path d="M16 8l4 4-4 4"></path><path d="M20 12h-9a6 6 0 0 0-6 6"></path></svg><span class="tip">重做</span></button>
+  </div>
+
+  <div id="zoomPanel" class="ui">
+    <button id="miniBtn" title="小地图"><svg class="ico" viewBox="0 0 24 24"><path d="M4 6l5-2 6 2 5-2v14l-5 2-6-2-5 2z"></path><path d="M9 4v14M15 6v14"></path></svg></button>
+    <button id="zoomOut">−</button><div id="zoomLabel">100%</div><button id="zoomIn">＋</button>
+    <button id="fitBtn" title="适应全部内容"><svg class="ico" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"></path></svg></button>
+  </div>
+  <div id="miniWrap" class="ui"><canvas id="minimap" width="312" height="184"></canvas></div>
+
+  <div id="floatingBar" class="ui"></div>
+  <div id="groupBox">
+    <div class="groupHandle nw" data-corner="nw"></div>
+    <div class="groupHandle ne" data-corner="ne"></div>
+    <div class="groupHandle se" data-corner="se"></div>
+    <div class="groupHandle sw" data-corner="sw"></div>
+    <div id="groupRotate"></div>
+  </div>
+  <div id="colorPopover" class="ui"></div>
+  <div id="arrangePopover" class="ui"></div>
+  <div id="textAlignPopover" class="ui"></div>
+  <div id="objectMenu" class="ui"></div>
+  <div id="endpointFrom" class="endpointHandle"></div>
+  <div id="endpointTo" class="endpointHandle"></div>
+  <div id="eraserCursor"></div>
+  <div id="dropOverlay">释放图片到白板</div>
+  <div id="hint" class="ui">Space / 中键拖动画布 · 滚轮缩放 · 双击空白处输入文字</div>
+  <div id="toast"></div>
+  <input id="imageInput" type="file" accept="image/*" multiple hidden />
+</div>
+
+<script src="./editor.1.js"></script>
+<script src="./editor.2.js"></script>
+<script src="./editor.3.js"></script>
+<script src="./editor.4.js"></script>
+<script src="./editor.5.js"></script>
+<script src="./editor.6.js"></script>
+</body>
+</html>
