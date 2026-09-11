@@ -1,0 +1,1 @@
+logo.png and app.ico in this directory are the official brand assets used by the Windows alpha build. Do not regenerate or overwrite logo.png during CI.
