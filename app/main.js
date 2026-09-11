@@ -10,14 +10,18 @@ function createWindow() {
     height: 900,
     minWidth: 980,
     minHeight: 680,
+    show: false,
     backgroundColor: '#fbfbfa',
     icon: __dirname + '/assets/app.ico',
+    frame: false,
     webPreferences: {
       preload: __dirname + '/preload.js',
-      contextIsolation: true
+      contextIsolation: true,
+      nodeIntegration: false
     }
   });
 
+  mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.loadFile(__dirname + '/renderer/home.html');
 }
 
