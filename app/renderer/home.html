@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>假装一棵树</title>
+<style>
+:root{--bg:#fbfbfa;--ink:#1d1d1f;--sub:#86868b;--line:#ececeb;--panel:#fff;--shadow:0 14px 40px rgba(20,20,20,.07)}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--ink)}button{font:inherit;color:inherit}
+body{user-select:none}.app{width:100%;height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#fdfdfc 0%,#fbfbfa 100%)}
+.titlebar{height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 18px 0 22px;-webkit-app-region:drag}
+.brand{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:650;letter-spacing:-.01em}.brand img{width:28px;height:28px;object-fit:contain}
+.win{display:flex;-webkit-app-region:no-drag}.win button{width:44px;height:36px;border:0;background:transparent;border-radius:9px;display:grid;place-items:center;cursor:pointer;color:#666}.win button:hover{background:#f0f0ef}.win .close:hover{background:#e81123;color:#fff}
+.main{flex:1;min-height:0;padding:24px 68px 28px;display:flex;flex-direction:column}
+.hero{display:flex;flex-direction:column;align-items:center;padding-top:38px}.hero img{width:72px;height:72px;object-fit:contain;margin-bottom:16px}.hero h1{margin:0;font-size:42px;line-height:1.12;letter-spacing:-.04em;font-weight:700}.hero p{margin:12px 0 0;color:var(--sub);font-size:18px;letter-spacing:-.01em}
+.actions{display:flex;gap:12px;margin-top:30px}.actions button{height:42px;padding:0 22px;border-radius:11px;border:1px solid #dededc;background:#fff;cursor:pointer;font-size:14px;font-weight:600;transition:.16s}.actions button:hover{transform:translateY(-1px);box-shadow:0 7px 20px rgba(0,0,0,.06)}.actions .primary{background:#202022;color:#fff;border-color:#202022}.actions svg{width:17px;height:17px;vertical-align:-3px;margin-right:8px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.recents{width:100%;max-width:1120px;margin:58px auto 0}.recent-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}.recent-head h2{margin:0;font-size:15px;font-weight:650}.recent-head button{border:0;background:none;color:var(--sub);font-size:12px;cursor:pointer;padding:5px 0}.recent-head button:hover{color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:26px}.card{min-width:0;cursor:pointer;position:relative}.thumb{aspect-ratio:16/9;border:1px solid #e8e8e6;border-radius:13px;background:#fff;overflow:hidden;display:grid;place-items:center;transition:.18s;box-shadow:0 1px 0 rgba(0,0,0,.02)}.card:hover .thumb{transform:translateY(-2px);box-shadow:0 10px 26px rgba(0,0,0,.07);border-color:#ddddda}.thumb img{width:100%;height:100%;object-fit:cover}.placeholder{width:100%;height:100%;position:relative;background-color:#fdfdfc;background-image:radial-gradient(circle,#d9d9d6 1px,transparent 1.1px);background-size:20px 20px}.placeholder .note{position:absolute;width:54px;height:50px;border-radius:2px;box-shadow:0 5px 12px rgba(0,0,0,.06)}.placeholder .n1{left:25%;top:32%;background:#fff2a7}.placeholder .n2{left:47%;top:43%;background:#dfeeff}.placeholder .n3{left:65%;top:27%;background:#e3f2d3}.placeholder .line{position:absolute;height:2px;background:#8f8f8a;width:24%;left:38%;top:53%;transform:rotate(-5deg);opacity:.55;border-radius:3px}
+.meta{padding:10px 2px 0}.title-row{display:flex;align-items:center;gap:8px}.card-title{min-width:0;flex:1;font-size:14px;font-weight:620;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.more{width:28px;height:26px;border:0;background:none;border-radius:7px;cursor:pointer;color:#999;opacity:0;transition:.12s}.card:hover .more{opacity:1}.more:hover{background:#f0f0ef;color:#333}.time{margin-top:4px;font-size:12px;color:#9a9a97}
+.empty{display:none;color:#a0a09d;font-size:13px;padding:22px 0}.footer{margin-top:auto;display:flex;align-items:center;justify-content:space-between;max-width:1120px;width:100%;margin-left:auto;margin-right:auto;padding-top:26px;color:#999}.settings-link{display:flex;align-items:center;gap:7px;border:0;background:none;color:#777;cursor:pointer;font-size:12px;padding:6px 0}.settings-link:hover{color:#222}.settings-link svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7}.local-note{font-size:11px;color:#aaa}
+.menu{position:fixed;width:178px;padding:6px;background:rgba(255,255,255,.96);backdrop-filter:blur(16px);border:1px solid #e9e9e6;border-radius:12px;box-shadow:var(--shadow);display:none;z-index:20}.menu.show{display:block}.menu button{display:block;width:100%;height:34px;border:0;background:none;border-radius:8px;text-align:left;padding:0 10px;cursor:pointer;font-size:12px}.menu button:hover{background:#f3f3f1}
+.modal-back{position:fixed;inset:0;background:rgba(0,0,0,.08);display:none;place-items:center;z-index:30}.modal-back.show{display:grid}.modal{width:520px;background:#fff;border:1px solid #e9e9e6;border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.14);padding:24px}.modal h3{margin:0 0 20px;font-size:17px}.setting-row{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:14px 0;border-top:1px solid #f0f0ee}.setting-row:first-of-type{border-top:0}.setting-row .lab{font-size:13px;font-weight:620}.setting-row .desc{font-size:11px;color:#999;margin-top:5px;max-width:315px;word-break:break-all}.setting-row button{border:1px solid #dededb;background:#fff;border-radius:9px;padding:7px 11px;cursor:pointer;font-size:12px}.setting-row button:hover{background:#f6f6f4}.modal-foot{display:flex;justify-content:flex-end;margin-top:12px}.modal-foot button{border:0;background:#202022;color:#fff;border-radius:9px;padding:8px 14px;cursor:pointer;font-size:12px}
+@media(max-width:1000px){.main{padding-left:38px;padding-right:38px}.hero{padding-top:20px}.hero h1{font-size:36px}.recents{margin-top:44px}.grid{gap:18px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="titlebar">
+    <div class="brand"><img src="../assets/logo.png" alt=""><span>假装一棵树</span></div>
+    <div class="win">
+      <button id="minBtn" aria-label="最小化">—</button>
+      <button id="maxBtn" aria-label="最大化">□</button>
+      <button id="closeBtn" class="close" aria-label="关闭">×</button>
+    </div>
+  </div>
+
+  <main class="main">
+    <section class="hero">
+      <img src="../assets/logo.png" alt="假装一棵树">
+      <h1>假装一棵树</h1>
+      <p>从一个想法开始</p>
+      <div class="actions">
+        <button id="newBtn" class="primary"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>新建白板</button>
+        <button id="openBtn"><svg viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v9H4z"/><path d="M4 7V5h6l2 2"/></svg>打开白板</button>
+      </div>
+    </section>
+
+    <section class="recents">
+      <div class="recent-head"><h2>最近使用</h2><button id="toggleMore" hidden>更多 ›</button></div>
+      <div id="recentGrid" class="grid"></div>
+      <div id="emptyRecent" class="empty">还没有最近使用的白板。</div>
+    </section>
+
+    <footer class="footer">
+      <button id="settingsBtn" class="settings-link"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7a7 7 0 0 0-.8-1.8l.9-1.9-2.1-2.1-1.9.9a7 7 0 0 0-1.8-.8L10.5 2h-3l-.7 2.1a7 7 0 0 0-1.8.8l-1.9-.9L1 6.1 1.9 8a7 7 0 0 0-.8 1.8L-1 10.5v3l2.1.7a7 7 0 0 0 .8 1.8L1 17.9 3.1 20l1.9-.9a7 7 0 0 0 1.8.8l.7 2.1h3l.7-2.1a7 7 0 0 0 1.8-.8l1.9.9 2.1-2.1-.9-1.9a7 7 0 0 0 .8-1.8z" transform="translate(2,0) scale(.83)"/></svg>设置</button>
+      <span class="local-note">所有内容仅保存在此电脑</span>
+    </footer>
+  </main>
+</div>
+
+<div id="cardMenu" class="menu"></div>
+<div id="settingsModal" class="modal-back">
+  <div class="modal">
+    <h3>设置</h3>
+    <div class="setting-row">
+      <div><div class="lab">默认保存位置</div><div id="savePath" class="desc"></div></div>
+      <button id="chooseDir">更改</button>
+    </div>
+    <div class="setting-row">
+      <div><div class="lab">本地与隐私</div><div class="desc">无账号、无服务器。白板文件和图片资源都保存在你的电脑中。</div></div>
+    </div>
+    <div class="modal-foot"><button id="closeSettings">完成</button></div>
+  </div>
+</div>
+<script>
+const api=window.treeboardDesktop;
+const recentGrid=document.getElementById('recentGrid'),emptyRecent=document.getElementById('emptyRecent'),cardMenu=document.getElementById('cardMenu');
+let allRecent=[],expanded=false,currentSettings=null;
+const fmtTime=iso=>{
+  const d=new Date(iso),now=new Date(),diff=now-d;
+  if(diff<60e3)return'刚刚';if(diff<3600e3)return`${Math.max(1,Math.floor(diff/60e3))} 分钟前`;
+  if(diff<86400e3)return`${Math.floor(diff/3600e3)} 小时前`;
+  const y=new Date(now);y.setHours(0,0,0,0);const dd=new Date(d);dd.setHours(0,0,0,0);const days=Math.round((y-dd)/86400e3);
+  if(days===1)return'昨天';if(days<7)return`${days} 天前`;return`${d.getMonth()+1}月${d.getDate()}日`;
+};
+function fallbackThumb(){return`<div class="placeholder"><span class="note n1"></span><span class="note n2"></span><span class="note n3"></span><span class="line"></span></div>`}
+function renderRecents(){
+  const list=expanded?allRecent:allRecent.slice(0,3);recentGrid.innerHTML='';emptyRecent.style.display=allRecent.length?'none':'block';
+  document.getElementById('toggleMore').hidden=allRecent.length<=3;document.getElementById('toggleMore').textContent=expanded?'收起 ›':'更多 ›';
+  list.forEach(item=>{
+    const card=document.createElement('article');card.className='card';card.tabIndex=0;
+    card.innerHTML=`<div class="thumb">${item.preview?`<img src="${item.preview}" alt="">`:fallbackThumb()}</div><div class="meta"><div class="title-row"><div class="card-title"></div><button class="more">•••</button></div><div class="time"></div></div>`;
+    card.querySelector('.card-title').textContent=item.title;card.querySelector('.time').textContent=fmtTime(item.updatedAt);
+    card.onclick=e=>{if(e.target.closest('.more'))return;api.openBoardPath(item.path)};
+    card.onkeydown=e=>{if(e.key==='Enter')api.openBoardPath(item.path)};
+    card.querySelector('.more').onclick=e=>{e.stopPropagation();openCardMenu(e.currentTarget,item)};
+    recentGrid.appendChild(card);
+  });
+}
+function openCardMenu(btn,item){
+  cardMenu.innerHTML='';
+  const add=(label,fn)=>{const b=document.createElement('button');b.textContent=label;b.onclick=async()=>{cardMenu.classList.remove('show');await fn()};cardMenu.appendChild(b)};
+  add('打开',()=>api.openBoardPath(item.path));add('在文件资源管理器中显示',()=>api.showInFolder(item.path));add('从最近使用中移除',async()=>{await api.removeRecent(item.path);await loadHome()});
+  const r=btn.getBoundingClientRect();cardMenu.style.left=Math.min(innerWidth-190,r.right-178)+'px';cardMenu.style.top=(r.bottom+6)+'px';cardMenu.classList.add('show');
+}
+async function loadHome(){const data=await api.getHomeData();allRecent=data.recent||[];currentSettings=data.settings;document.getElementById('savePath').textContent=currentSettings.saveDirectory;renderRecents()}
+
+document.getElementById('newBtn').onclick=()=>api.newBoard();document.getElementById('openBtn').onclick=()=>api.openBoardDialog();document.getElementById('toggleMore').onclick=()=>{expanded=!expanded;renderRecents()};
+document.getElementById('settingsBtn').onclick=()=>document.getElementById('settingsModal').classList.add('show');document.getElementById('closeSettings').onclick=()=>document.getElementById('settingsModal').classList.remove('show');
+document.getElementById('settingsModal').onclick=e=>{if(e.target.id==='settingsModal')e.currentTarget.classList.remove('show')};document.getElementById('chooseDir').onclick=async()=>{const r=await api.chooseSaveDirectory();if(r.ok){currentSettings=r.settings;document.getElementById('savePath').textContent=currentSettings.saveDirectory}};
+document.getElementById('minBtn').onclick=()=>api.minimize();document.getElementById('maxBtn').onclick=()=>api.maximizeToggle();document.getElementById('closeBtn').onclick=()=>api.closeWindow();document.addEventListener('click',e=>{if(!cardMenu.contains(e.target)&&!e.target.closest('.more'))cardMenu.classList.remove('show')});
+loadHome();
+</script>
+</body>
+</html>
