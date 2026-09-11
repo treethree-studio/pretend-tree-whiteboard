@@ -3,6 +3,8 @@ name: Build Windows
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -22,11 +24,32 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: app/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install asset tooling
+        run: python -m pip install --disable-pip-version-check pillow
+
+      - name: Generate Windows assets
+        run: python scripts/generate_assets.py
+
+      - name: Validate editor scripts
+        shell: pwsh
+        run: |
+          Get-ChildItem renderer\editor*.js | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          node --check main.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --check preload.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
 
       - name: Build Windows installer
         run: npm run dist:win
@@ -36,3 +59,4 @@ jobs:
         with:
           name: pretend-tree-whiteboard-windows
           path: app/dist/*.exe
+          if-no-files-found: error
