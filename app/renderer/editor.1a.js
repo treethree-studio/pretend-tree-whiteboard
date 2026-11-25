@@ -110,16 +110,80 @@ function redo(){
   renderAll();scheduleSave();updateUndoRedo();
 }
 
-function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(saveState,650)}
-let desktopSaving=false,desktopSaveAgain=false;
+let saveRevision=0,savedRevision=0,saveInFlight=null,saveError='';
+function scheduleSave(){
+  saveRevision++;
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{saveTimer=null;void saveState()},650);
+}
 function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(blob)})}
 function dataUrlToBlob(dataUrl){const [meta,b64]=String(dataUrl).split(',');const mime=(meta.match(/data:([^;]+)/)||[])[1]||'application/octet-stream';const bin=atob(b64||''),arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return new Blob([arr],{type:mime})}
-async function serializeTreeboard(){const assets={};for(const o of state.objects.filter(x=>x.type==='image'&&x.assetId)){if(assets[o.assetId])continue;try{const blob=await getAssetBlob(o.assetId);if(blob)assets[o.assetId]=await blobToDataUrl(blob)}catch(e){}}let preview=null;try{preview=minimap.toDataURL('image/png')}catch(e){}return{format:'treeboard',version:1,title:state.title,camera:state.camera,objects:state.objects,assets,preview,updatedAt:new Date().toISOString()}}
+async function serializeTreeboard(){
+  const {title,camera,objects}=deep({title:state.title,camera:state.camera,objects:state.objects});
+  const assets={};
+  const assetIds=new Set(objects.filter(o=>o.type==='image'&&o.assetId).map(o=>o.assetId));
+  for(const id of assetIds){
+    const blob=await getAssetBlob(id);
+    if(!blob)throw new Error('有图片资源无法读取，请重试或移除无法加载的图片。');
+    assets[id]=await blobToDataUrl(blob);
+  }
+  let preview=null;
+  try{preview=minimap.toDataURL('image/png')}catch{}
+  return{format:'treeboard',version:1,title,camera,objects,assets,preview,updatedAt:new Date().toISOString()};
+}
 async function hydrateTreeboard(board){state.title=board?.title||'未命名白板';state.camera=board?.camera||{x:0,y:0,scale:1};state.objects=deep(board?.objects||[]);state.selection=[];const remap=new Map();for(const [oldId,dataUrl] of Object.entries(board?.assets||{})){try{const newId=await putAsset(dataUrlToBlob(dataUrl));remap.set(oldId,newId)}catch(e){}}state.objects.forEach(o=>{if(o.type==='image'&&o.assetId&&remap.has(o.assetId))o.assetId=remap.get(o.assetId)});boardTitle.textContent=state.title}
-function flashSaved(text='已保存'){const el=document.getElementById('saveStatus');el.textContent=text;el.classList.add('show');clearTimeout(flashSaved.t);flashSaved.t=setTimeout(()=>el.classList.remove('show'),900)}
-async function saveState(){if(window.treeboardDesktop){if(desktopSaving){desktopSaveAgain=true;return}desktopSaving=true;flashSaved('正在保存…');try{const board=await serializeTreeboard();const result=await window.treeboardDesktop.saveCurrent(board);if(result?.ok)flashSaved('已保存');else showToast(result?.error||'保存失败')}catch(err){console.error(err);showToast('保存失败')}finally{desktopSaving=false;if(desktopSaveAgain){desktopSaveAgain=false;scheduleSave()}}return}try{localStorage.setItem('minimal_whiteboard_desktop_fallback',JSON.stringify({title:state.title,camera:state.camera,objects:state.objects}))}catch(err){}}
+function showSaveStatus(text,failed=false){
+  const el=document.getElementById('saveStatus');
+  el.textContent=text;
+  el.disabled=!failed;
+  el.classList.add('show');
+  clearTimeout(showSaveStatus.timer);
+  if(text==='已保存')showSaveStatus.timer=setTimeout(()=>el.classList.remove('show'),900);
+}
+async function writeState(saveAs){
+  const revision=saveRevision;
+  showSaveStatus('正在保存…');
+  let result;
+  try{
+    const desktop=window.treeboardDesktop;
+    if(desktop){
+      const board=await serializeTreeboard();
+      result=saveAs?await desktop.saveAs(board):await desktop.saveCurrent(board);
+    }else{
+      const {title,camera,objects}=state;
+      localStorage.setItem('minimal_whiteboard_desktop_fallback',JSON.stringify({title,camera,objects}));
+      result={ok:true};
+    }
+  }catch(err){
+    result={ok:false,error:err.message};
+  }
+  if(result?.ok){
+    savedRevision=revision;
+    saveError='';
+    showSaveStatus('已保存');
+    return true;
+  }
+  if(!result?.canceled)saveError=result?.error||'保存失败，请检查保存位置。';
+  showSaveStatus('保存失败 · 查看选项',true);
+  return false;
+}
+async function saveState(saveAs=false){
+  while(saveInFlight)await saveInFlight;
+  if(!saveAs&&savedRevision===saveRevision)return true;
+  saveInFlight=writeState(saveAs);
+  try{return await saveInFlight}finally{saveInFlight=null}
+}
 function loadState(){try{const raw=localStorage.getItem('minimal_whiteboard_desktop_fallback');if(!raw)return false;const d=JSON.parse(raw);state.title=d.title||'未命名白板';state.camera=d.camera||state.camera;state.objects=d.objects||[];boardTitle.textContent=state.title;return true}catch(e){return false}}
-async function flushSave(){clearTimeout(saveTimer);desktopSaveAgain=false;while(desktopSaving)await new Promise(r=>setTimeout(r,40));await saveState();while(desktopSaving)await new Promise(r=>setTimeout(r,40))}
+async function flushSave(){
+  if(document.activeElement?.isContentEditable)document.activeElement.blur();
+  await pendingBoardRename;
+  do{
+    clearTimeout(saveTimer);
+    saveTimer=null;
+    if(!await saveState())return false;
+  }while(savedRevision!==saveRevision);
+  return true;
+}
 function loadRecentColors(){
   try{recentColors=JSON.parse(localStorage.getItem('minimal_whiteboard_v5_recent_colors')||'[]')}catch(e){recentColors=[]}
 }

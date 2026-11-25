@@ -27,9 +27,9 @@ function renderElements(){
     n.style.left=o.x+'px';n.style.top=o.y+'px';n.style.width=o.w+'px';n.style.height=o.h+'px';n.style.zIndex=o.z||1;
     n.style.transform=`rotate(${o.rot||0}deg)`;
     if(o.type==='sticky'){
-      n.classList.add('sticky');n.style.background=o.fill||DEFAULTS.sticky;n.textContent=o.text||'';
+      n.classList.add('sticky');n.style.background=o.fill||DEFAULTS.sticky;
     }else if(o.type==='text'){
-      n.classList.add('textEl');n.style.fontSize=(o.fontSize||28)+'px';n.style.fontWeight=o.fontWeight||600;n.style.color=o.color||DEFAULTS.text;n.style.textAlign=o.align||'left';n.textContent=o.text||'文字';
+      n.classList.add('textEl');n.style.fontSize=(o.fontSize||28)+'px';n.style.fontWeight=o.fontWeight||600;n.style.color=o.color||DEFAULTS.text;n.style.textAlign=o.align||'left';
     }else if(o.type==='rect'||o.type==='circle'){
       n.classList.add('shape',o.type);n.style.background=o.fill==='transparent'?'transparent':(o.fill||'transparent');
       n.style.borderColor=o.stroke||DEFAULTS.shapeStroke;n.style.borderWidth=(o.strokeWidth||2)+'px';
@@ -41,6 +41,12 @@ function renderElements(){
         if(!url||!n.isConnected){placeholder.textContent='图片资源不可用';return}
         const img=document.createElement('img');img.src=url;placeholder.replaceWith(img);
       }).catch(()=>placeholder.textContent='图片资源不可用');
+    }
+    if(o.type==='sticky'||o.type==='text'){
+      const text=document.createElement('div');
+      text.className='editableText';
+      text.textContent=o.text??(o.type==='text'?'文字':'');
+      n.appendChild(text);
     }
     if(state.selection.includes(o.id))n.classList.add('selected');
     if(o.locked)n.classList.add('locked');
@@ -54,7 +60,7 @@ function renderElements(){
       ['n','e','s','w'].forEach(a=>{const d=document.createElement('div');d.className='anchor '+a;d.dataset.anchor=a;n.appendChild(d)});
     }
     n.addEventListener('pointerdown',elementPointerDown);
-    n.addEventListener('dblclick',e=>{e.stopPropagation();beginEdit(o.id)});
+    n.addEventListener('dblclick',e=>{e.stopPropagation();beginEdit(o.id,e)});
     elementsRoot.appendChild(n);
   });
 }
