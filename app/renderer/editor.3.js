@@ -101,27 +101,48 @@ function setTool(t){
   if(t==='text')canvas.classList.add('cursorText');
   if(t==='eraser'){canvas.classList.add('cursorEraser');updateEraserCursorSize()}
 }
-function createObject(type,p){
+function createObject(type,p,bounds){
   const z=zMax()+1;let o;
   if(type==='sticky')o={id:uid(),type:'sticky',x:p.x-105,y:p.y-105,w:210,h:210,rot:0,fill:DEFAULTS.sticky,text:'输入想法…',z};
   if(type==='text')o={id:uid(),type:'text',x:p.x,y:p.y,w:190,h:56,rot:0,text:'输入文字',fontSize:28,fontWeight:600,color:DEFAULTS.text,align:'left',z};
   if(type==='rect')o={id:uid(),type:'rect',x:p.x-90,y:p.y-60,w:180,h:120,rot:0,fill:'transparent',stroke:DEFAULTS.shapeStroke,strokeWidth:2,z};
   if(type==='circle')o={id:uid(),type:'circle',x:p.x-70,y:p.y-70,w:140,h:140,rot:0,fill:'transparent',stroke:DEFAULTS.shapeStroke,strokeWidth:2,z};
   if(!o)return;
+  if(bounds)Object.assign(o,bounds);
   discrete(()=>state.objects.push(o));renderElements();setTool('select');setSelection([o.id]);
   if(type==='sticky'||type==='text')setTimeout(()=>beginEdit(o.id),0);
 }
-function beginEdit(id){
-  const o=getObj(id);if(!o||!['sticky','text'].includes(o.type))return;
-  const n=$(`.element[data-id="${id}"]`);if(!n)return;
-  const before=modelSnapshot();
-  n.contentEditable='true';n.classList.add('editing');n.focus();
-  const range=document.createRange();range.selectNodeContents(n);range.collapse(false);const sel=getSelection();sel.removeAllRanges();sel.addRange(range);
-  const finish=()=>{
-    o.text=n.innerText.replace(/\n+\s*$/,'');n.contentEditable='false';n.classList.remove('editing');n.removeEventListener('blur',finish);
-    pushHistory(before);scheduleSave();
-  };
-  n.addEventListener('blur',finish);
+function beginEdit(id,pointer){
+  const o=getObj(id);
+  if(!o||o.locked||state.tool!=='select'||!['sticky','text'].includes(o.type))return;
+  const n=$(`.element[data-id="${id}"]`);
+  const text=n?.querySelector('.editableText');
+  if(!text||text.isContentEditable)return;
+
+  text.contentEditable='plaintext-only';
+  n.classList.add('editing');
+  text.focus({preventScroll:true});
+  let range=pointer&&document.caretRangeFromPoint(pointer.clientX,pointer.clientY);
+  if(!range||!text.contains(range.startContainer)){
+    range=document.createRange();
+    range.selectNodeContents(text);
+    range.collapse(false);
+  }
+  const selection=getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+
+  text.addEventListener('blur',()=>{
+    const value=text.innerText.replace(/\n+\s*$/,'');
+    text.contentEditable='false';
+    text.textContent=value;
+    n.classList.remove('editing');
+    if(value===(o.text??(o.type==='text'?'文字':'')))return;
+    const before=modelSnapshot();
+    o.text=value;
+    pushHistory(before);
+    scheduleSave();
+  },{once:true});
 }
 
 /* Selection drag, snap and resize */
@@ -208,6 +229,13 @@ function elementPointerDown(ev){
     markDirty();return;
   }
   if(state.tool!=='select')return;
+  if(ev.target.closest('.editableText[contenteditable="plaintext-only"]')){
+    ev.stopPropagation();
+    return;
+  }
+  if(document.activeElement?.matches('.editableText[contenteditable="plaintext-only"]')){
+    document.activeElement.blur();
+  }
   ev.preventDefault();ev.stopPropagation();
   if(o.locked){setSelection(selectionWithGroup(id,ev.altKey));return}
   if(!ev.shiftKey&&!state.selection.includes(id))setSelection(selectionWithGroup(id,ev.altKey));

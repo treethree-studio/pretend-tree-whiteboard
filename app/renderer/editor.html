@@ -32,7 +32,7 @@
   <div id="dragStrip"></div>
   <button id="homeBtn" title="返回首页"><svg class="ico" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"></path></svg></button>
   <div id="boardTitle" contenteditable="true" spellcheck="false">未命名白板</div>
-  <div id="saveStatus">已保存</div>
+  <button id="saveStatus" type="button" disabled>已保存</button>
   <div id="windowButtons"><button id="minWin">—</button><button id="maxWin">□</button><button id="closeWin" class="close">×</button></div>
 
   <div id="topActions" class="ui">
@@ -85,6 +85,15 @@
   <div id="toast"></div>
   <input id="imageInput" type="file" accept="image/*" multiple hidden />
 </div>
+<dialog id="saveRecovery" aria-labelledby="saveRecoveryTitle" aria-describedby="saveRecoveryError">
+  <h2 id="saveRecoveryTitle">白板未能保存</h2>
+  <p id="saveRecoveryError" role="status"></p>
+  <div class="saveRecoveryActions">
+    <button id="keepEditing" type="button">继续编辑</button>
+    <button id="saveBoardAs" type="button">另存为…</button>
+    <button id="retrySave" type="button" autofocus>重试保存</button>
+  </div>
+</dialog>
 
 <script src="./editor.1a.js"></script>
 <script src="./editor.1b.js"></script>

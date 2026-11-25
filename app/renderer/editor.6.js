@@ -2,8 +2,76 @@ const exportMenu=document.getElementById('exportMenu');
 $('#exportBtn').onclick=e=>{e.stopPropagation();exportMenu.classList.toggle('show')};
 document.getElementById('exportPngItem').onclick=()=>{exportMenu.classList.remove('show');exportPNG()};document.getElementById('exportPdfItem').onclick=()=>{exportMenu.classList.remove('show');exportPDF()};
 boardTitle.addEventListener('input',()=>{state.title=boardTitle.innerText.trim()||'未命名白板';scheduleSave()});boardTitle.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();boardTitle.blur()}});
-boardTitle.addEventListener('blur',async()=>{if(window.treeboardDesktop){const r=await window.treeboardDesktop.renameCurrent(state.title);if(r?.ok&&r.title){state.title=r.title;boardTitle.textContent=r.title;scheduleSave()}}});
-document.getElementById('homeBtn').onclick=async()=>{await flushSave();window.treeboardDesktop?.goHome()};document.getElementById('minWin').onclick=()=>window.treeboardDesktop?.minimize();document.getElementById('maxWin').onclick=()=>window.treeboardDesktop?.maximizeToggle();document.getElementById('closeWin').onclick=()=>window.treeboardDesktop?.closeWindow();
+let pendingBoardRename=Promise.resolve();
+let titleBeforeEdit;
+boardTitle.addEventListener('focus',()=>{titleBeforeEdit=state.title});
+boardTitle.addEventListener('blur',()=>{
+  const desktop=window.treeboardDesktop,title=state.title;
+  if(!desktop||title===titleBeforeEdit)return;
+  pendingBoardRename=pendingBoardRename.then(async()=>{
+    const result=await desktop.renameCurrent(title);
+    if(result?.ok&&result.title&&state.title===title){
+      state.title=result.title;
+      if(document.activeElement!==boardTitle)boardTitle.textContent=result.title;
+      scheduleSave();
+    }
+  }).catch(err=>console.error(err));
+});
+
+const saveDialog=document.getElementById('saveRecovery');
+const saveDialogError=document.getElementById('saveRecoveryError');
+const saveDialogButtons=[...saveDialog.querySelectorAll('button')];
+let leavingBoard=false;
+
+function openSaveRecovery(){
+  saveDialogError.textContent=saveError;
+  saveDialog.returnValue='';
+  saveDialog.showModal();
+  return new Promise(resolve=>{
+    saveDialog.addEventListener('close',()=>resolve(saveDialog.returnValue==='saved'),{once:true});
+  });
+}
+
+async function recoverSave(saveAs){
+  saveDialogButtons.forEach(button=>{button.disabled=true});
+  saveDialogError.textContent='正在保存…';
+  try{
+    const saved=saveAs?(await saveState(true)&&await flushSave()):await flushSave();
+    if(saved)saveDialog.close('saved');
+    else saveDialogError.textContent=saveError;
+  }finally{
+    saveDialogButtons.forEach(button=>{button.disabled=false});
+    if(saveDialog.open)document.getElementById('retrySave').focus();
+  }
+}
+document.getElementById('retrySave').onclick=()=>recoverSave(false);
+const saveAsButton=document.getElementById('saveBoardAs');
+saveAsButton.hidden=!window.treeboardDesktop;
+saveAsButton.onclick=()=>recoverSave(true);
+document.getElementById('keepEditing').onclick=()=>saveDialog.close();
+saveDialog.addEventListener('cancel',e=>{
+  if(document.getElementById('retrySave').disabled)e.preventDefault();
+});
+document.getElementById('saveStatus').onclick=()=>{
+  if(!leavingBoard&&!saveDialog.open)void openSaveRecovery();
+};
+
+async function leaveBoard(action){
+  if(leavingBoard||saveDialog.open)return;
+  leavingBoard=true;
+  try{
+    if(await flushSave()||await openSaveRecovery())await action();
+  }catch(err){
+    console.error(err);
+    showToast('操作未完成，请重试');
+  }finally{
+    leavingBoard=false;
+  }
+}
+document.getElementById('homeBtn').onclick=()=>leaveBoard(()=>window.treeboardDesktop?.goHome());
+document.getElementById('minWin').onclick=()=>window.treeboardDesktop?.minimize();
+document.getElementById('maxWin').onclick=()=>window.treeboardDesktop?.maximizeToggle();
+document.getElementById('closeWin').onclick=()=>window.treeboardDesktop?.closeWindow();
 document.addEventListener('click',e=>{if(!exportMenu.contains(e.target)&&!e.target.closest('#exportBtn'))exportMenu.classList.remove('show')});
 
 imageInput.onchange=async()=>{
@@ -27,12 +95,20 @@ document.addEventListener('click',e=>{
 
 /* Keyboard: modifiers never leak into single-key tools */
 document.addEventListener('keydown',e=>{
+  if(saveDialog.open)return;
+  if(shapeDragKey(e)){if(e.key==='Escape')e.preventDefault();return}
   const editing=document.activeElement?.isContentEditable||['INPUT','TEXTAREA'].includes(document.activeElement?.tagName);
   if(e.code==='Space'&&!editing){spaceDown=true;canvas.classList.add('cursorGrab');e.preventDefault();return}
   if(editing)return;
   const mod=e.ctrlKey||e.metaKey;
   if(mod){
     const k=e.key.toLowerCase();
+    if(k==='a'&&!e.altKey&&!e.shiftKey){
+      e.preventDefault();
+      if(state.tool!=='select')setTool('select');
+      setSelection(state.objects.map(o=>o.id));
+      return;
+    }
     if(k==='z'){e.preventDefault();e.shiftKey?redo():undo();return}
     if(k==='y'){e.preventDefault();redo();return}
     if(k==='c'){e.preventDefault();if(state.selection.length)copiedPayload=buildCopyPayload(state.selection);return}
@@ -59,7 +135,7 @@ document.addEventListener('keydown',e=>{
   const map={v:'select',n:'sticky',t:'text',p:'pen',e:'eraser',c:'connector',o:'circle',r:'rect',i:'image'};
   const t=map[e.key.toLowerCase()];if(t){e.preventDefault();setTool(t)}
 });
-document.addEventListener('keyup',e=>{if(e.code==='Space'){spaceDown=false;canvas.classList.remove('cursorGrab')}});
+document.addEventListener('keyup',e=>{shapeDragKey(e);if(e.code==='Space'){spaceDown=false;canvas.classList.remove('cursorGrab')}});
 
 /* Initial content */
 function initialExample(){
@@ -72,5 +148,9 @@ function initialExample(){
 }
 async function bootstrap(){loadRecentColors();let loaded=false;if(window.treeboardDesktop){try{const payload=await window.treeboardDesktop.getCurrentBoard();if(payload?.board){await hydrateTreeboard(payload.board);loaded=true}}catch(e){console.error(e)}}else loaded=loadState();if(!loaded){state.title='未命名白板';state.objects=[];state.camera={x:0,y:0,scale:1}}renderAll();if(localStorage.getItem('pretend_tree_editor_hint_seen')!=='1'){$('#hint').classList.add('show');setTimeout(()=>{$('#hint').classList.remove('show');localStorage.setItem('pretend_tree_editor_hint_seen','1')},4500)}}
 bootstrap();
-if(window.treeboardDesktop?.onBeforeClose){window.treeboardDesktop.onBeforeClose(async()=>{await flushSave();await window.treeboardDesktop.confirmClose()})}
+window.treeboardDesktop?.onBeforeClose(()=>leaveBoard(()=>window.treeboardDesktop.confirmClose()));
+window.treeboardDesktop?.onOpenBoard(filePath=>leaveBoard(async()=>{
+  const result=await window.treeboardDesktop.openBoardPath(filePath);
+  if(!result?.ok)showToast(result?.error||'无法打开白板');
+}));
 window.addEventListener('resize',()=>{applyCamera();positionFloatingBar()});
