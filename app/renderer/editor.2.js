@@ -62,7 +62,8 @@ function buildFloatingBar(){
     floatingBar.appendChild(arrangeButton('single'));
   }else if(o.type==='drawing'){
     floatingBar.appendChild(colorButton(o.color||DEFAULTS.line,'color'));
-    const w=document.createElement('button');w.textContent=(o.width||4)+'px';w.title='线条粗细';w.onclick=()=>cycleWidth(o,[2,4,8,14]);floatingBar.appendChild(w);
+    const w=document.createElement('button');w.textContent=(o.width||4)+'px';w.title='线条粗细';
+    w.onclick=()=>cycleWidth(o,o.highlighter?[8,16,24,36,48]:[2,4,8,14]);floatingBar.appendChild(w);
     floatingBar.appendChild(arrangeButton('single'));
   }else if(o.type==='connector'){
     floatingBar.appendChild(colorButton(o.color||DEFAULTS.line,'color'));

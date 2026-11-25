@@ -8,7 +8,7 @@
 
 </head>
 <body>
-<div id="app">
+<div id="app" class="selectMode">
   <div id="canvas">
     <div id="world">
       <svg id="vectorLayer" width="1" height="1">
@@ -21,8 +21,10 @@
         <g id="drawingGroup"></g>
         <path id="draftConnector" d="" fill="none" stroke="#7267ff" stroke-width="2.3" stroke-linecap="round" stroke-dasharray="5 5" style="display:none"></path>
       </svg>
-      <div id="labels"></div>
       <div id="elements"></div>
+      <div id="labels"></div>
+      <svg id="highlightLayer" width="1" height="1" aria-hidden="true"></svg>
+      <div id="searchMarker" hidden aria-hidden="true"></div>
     </div>
     <div id="marquee" hidden></div>
     <div id="guideV" class="guide v"></div>
@@ -36,17 +38,33 @@
   <div id="windowButtons"><button id="minWin">—</button><button id="maxWin">□</button><button id="closeWin" class="close">×</button></div>
 
   <div id="topActions" class="ui">
-    <button id="exportBtn" class="iconBtn" title="导出 PNG">
+    <button id="searchBtn" class="iconBtn" title="搜索白板 (Ctrl+F)" aria-label="搜索白板" aria-controls="boardSearch" aria-expanded="false">
+      <svg class="ico" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="5.5"></circle><path d="m15 15 5 5"></path></svg>
+    </button>
+    <button id="exportBtn" class="iconBtn" title="导出" aria-label="导出" aria-controls="exportMenu" aria-expanded="false">
       <svg class="ico" viewBox="0 0 24 24"><path d="M12 4v11"></path><path d="M8.5 11.5L12 15l3.5-3.5"></path><path d="M5 20h14"></path></svg>
     </button>
   </div>
-  <div id="exportMenu"><button id="exportPngItem">导出 PNG</button><button id="exportPdfItem">导出 PDF</button></div>
+  <div id="exportMenu">
+    <button data-export="PNG">导出 PNG</button>
+    <button data-export="PDF">导出 PDF</button>
+    <button data-export="PNG" data-selection-only disabled>导出选中内容为 PNG</button>
+    <button data-export="PDF" data-selection-only disabled>导出选中内容为 PDF</button>
+  </div>
+  <section id="boardSearch" class="ui" aria-label="搜索白板" hidden>
+    <div class="searchControls">
+      <input id="searchQuery" type="search" aria-label="搜索便签和文字" placeholder="搜索便签和文字" autocomplete="off">
+      <button id="closeSearch" class="iconBtn" type="button" aria-label="关闭搜索" title="关闭搜索 (Esc)">×</button>
+    </div>
+    <p id="searchStatus" role="status"></p>
+    <ul id="searchResults"></ul>
+  </section>
 
   <div id="toolbar" class="ui">
     <button class="tool active" data-tool="select"><svg class="ico" viewBox="0 0 24 24"><path d="M5 3l13 8-6 2-2 6L5 3z"></path></svg><span class="tip">选择 V</span></button>
     <button class="tool" data-tool="sticky"><svg class="ico" viewBox="0 0 24 24"><path d="M5 4h14v12l-4 4H5z"></path><path d="M15 20v-4h4"></path></svg><span class="tip">便签 N</span></button>
     <button class="tool" data-tool="text"><svg class="ico" viewBox="0 0 24 24"><path d="M5 5h14"></path><path d="M12 5v14"></path></svg><span class="tip">文字 T</span></button>
-    <button class="tool" data-tool="pen"><svg class="ico" viewBox="0 0 24 24"><path d="M4 20l4-1 10-10a2 2 0 0 0-3-3L5 16z"></path><path d="M13.5 8.5l3 3"></path></svg><span class="tip">画笔 P</span></button>
+    <button class="tool" data-tool="pen" aria-label="画笔和荧光笔" aria-controls="penMenu" aria-expanded="false"><svg class="ico" viewBox="0 0 24 24"><path d="M4 20l4-1 10-10a2 2 0 0 0-3-3L5 16z"></path><path d="M13.5 8.5l3 3"></path></svg><span class="tip">画笔 P</span></button>
     <button class="tool" data-tool="eraser"><svg class="ico" viewBox="0 0 24 24"><path d="M7 18l-3-3a2 2 0 0 1 0-2.8L11.2 5a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L15.8 18H7z"></path><path d="M10 8l6 6"></path><path d="M8 21h11"></path></svg><span class="tip">橡皮擦 E</span></button>
     <button class="tool" data-tool="connector"><svg class="ico" viewBox="0 0 24 24"><path d="M5 18L19 6"></path><path d="M13 6h6v6"></path></svg><span class="tip">连线 C</span></button>
     <div class="sep"></div>
@@ -56,6 +74,17 @@
     <div class="sep"></div>
     <button id="undoBtn" class="tool"><svg class="ico" viewBox="0 0 24 24"><path d="M8 8L4 12l4 4"></path><path d="M4 12h9a6 6 0 0 1 6 6"></path></svg><span class="tip">撤销</span></button>
     <button id="redoBtn" class="tool"><svg class="ico" viewBox="0 0 24 24"><path d="M16 8l4 4-4 4"></path><path d="M20 12h-9a6 6 0 0 0-6 6"></path></svg><span class="tip">重做</span></button>
+  </div>
+  <div id="penMenu" class="ui" hidden>
+    <div class="penChoices" aria-label="画笔类型">
+      <button type="button" data-pen-mode="pen" aria-pressed="true">画笔</button>
+      <button type="button" data-pen-mode="highlighter" aria-pressed="false">荧光笔</button>
+    </div>
+    <label id="highlighterWidthControl" for="highlighterWidth" hidden>
+      粗细
+      <input id="highlighterWidth" type="range" min="8" max="48" step="2" value="24">
+      <output id="highlighterWidthValue" for="highlighterWidth">24</output>
+    </label>
   </div>
 
   <div id="zoomPanel" class="ui">
@@ -104,6 +133,7 @@
 <script src="./editor.3.js"></script>
 <script src="./editor.4.js"></script>
 <script src="./editor.5.js"></script>
+<script src="./editor.search.js"></script>
 <script src="./editor.6.js"></script>
 </body>
 </html>

@@ -7,7 +7,7 @@ function flushRender(){
   rafPending=false;
   if(dirtyVectors){dirtyVectors=false;renderVectors();renderLabels()}
   if(dirtyMini){dirtyMini=false;renderMini()}
-  positionFloatingBar();positionEndpointHandles();positionGroupBox();
+  positionFloatingBar();positionEndpointHandles();positionGroupBox();positionSearchMarker();
 }
 function renderAll(){
   renderElements();renderVectors();renderLabels();renderMini();updateSelectionUI();applyCamera();updateUndoRedo();
@@ -63,6 +63,7 @@ function renderElements(){
     n.addEventListener('dblclick',e=>{e.stopPropagation();beginEdit(o.id,e)});
     elementsRoot.appendChild(n);
   });
+  refreshBoardSearch();
 }
 function renderLabels(){
   labelsRoot.innerHTML='';
@@ -78,7 +79,7 @@ function renderLabels(){
   });
 }
 function renderVectors(){
-  connectorGroup.innerHTML='';drawingGroup.innerHTML='';
+  connectorGroup.innerHTML='';drawingGroup.innerHTML='';highlightLayer.replaceChildren();
   state.objects.filter(o=>o.type==='connector').sort((a,b)=>(a.z||1)-(b.z||1)).forEach(o=>{
     const g=connectorGeom(o),d=`M ${g.p1.x} ${g.p1.y} C ${g.c1.x} ${g.c1.y}, ${g.c2.x} ${g.c2.y}, ${g.p2.x} ${g.p2.y}`;
     if(state.selection.includes(o.id)){
@@ -103,15 +104,21 @@ function renderVectors(){
     if(o.arrow==='both')appendHead(g.p1,g.c1);
   });
   state.objects.filter(o=>o.type==='drawing').sort((a,b)=>(a.z||1)-(b.z||1)).forEach(o=>{
-    const d=smoothPath(o.points||[]);
+    const d=smoothPath(o.points||[]),layer=o.highlighter?highlightLayer:drawingGroup;
     if(state.selection.includes(o.id)){
       const hi=document.createElementNS('http://www.w3.org/2000/svg','path');
       hi.setAttribute('d',d);hi.setAttribute('fill','none');hi.setAttribute('stroke','#7267ff');hi.setAttribute('stroke-opacity','.20');
-      hi.setAttribute('stroke-width',(o.width||4)+10);hi.setAttribute('stroke-linecap','round');hi.setAttribute('stroke-linejoin','round');drawingGroup.appendChild(hi);
+      hi.setAttribute('stroke-width',(o.width||4)+10);hi.setAttribute('stroke-linecap','round');hi.setAttribute('stroke-linejoin','round');layer.appendChild(hi);
     }
     const p=document.createElementNS('http://www.w3.org/2000/svg','path');
     p.setAttribute('d',d);p.setAttribute('fill','none');p.setAttribute('stroke',o.color||DEFAULTS.line);p.setAttribute('stroke-width',o.width||4);
-    p.setAttribute('stroke-linecap','round');p.setAttribute('stroke-linejoin','round');drawingGroup.appendChild(p);
+    p.setAttribute('stroke-linecap','round');p.setAttribute('stroke-linejoin','round');
+    if(o.highlighter){
+      p.classList.add('highlightStroke');
+      p.dataset.drawingId=o.id;
+      p.setAttribute('stroke-opacity',HIGHLIGHT_OPACITY);
+    }
+    layer.appendChild(p);
   });
   if(connectorDraft){
     const from=endpointPoint(connectorDraft.from,connectorDraft.current),p2=connectorDraft.current,dx=p2.x-from.x,dy=p2.y-from.y;
@@ -129,6 +136,7 @@ function smoothPath(pts){
 }
 function updateSelectionUI(){
   const single=state.selection.length===1;
+  $$('#exportMenu [data-selection-only]').forEach(button=>{button.disabled=!state.selection.length});
   $$('.element').forEach(n=>{
     const selected=state.selection.includes(n.dataset.id);
     n.classList.toggle('selected',selected);

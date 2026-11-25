@@ -1,6 +1,18 @@
 const exportMenu=document.getElementById('exportMenu');
-$('#exportBtn').onclick=e=>{e.stopPropagation();exportMenu.classList.toggle('show')};
-document.getElementById('exportPngItem').onclick=()=>{exportMenu.classList.remove('show');exportPNG()};document.getElementById('exportPdfItem').onclick=()=>{exportMenu.classList.remove('show');exportPDF()};
+const exportButton=$('#exportBtn');
+function hideExportMenu(){
+  exportMenu.classList.remove('show');
+  exportButton.setAttribute('aria-expanded','false');
+}
+exportButton.onclick=()=>{
+  exportButton.setAttribute('aria-expanded',String(exportMenu.classList.toggle('show')));
+};
+exportMenu.addEventListener('click',event=>{
+  const button=event.target.closest('[data-export]');
+  if(!button||button.disabled)return;
+  hideExportMenu();
+  void exportBoard(button.dataset.export,button.hasAttribute('data-selection-only'));
+});
 boardTitle.addEventListener('input',()=>{state.title=boardTitle.innerText.trim()||'未命名白板';scheduleSave()});boardTitle.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();boardTitle.blur()}});
 let pendingBoardRename=Promise.resolve();
 let titleBeforeEdit;
@@ -60,6 +72,7 @@ async function leaveBoard(action){
   if(leavingBoard||saveDialog.open)return;
   leavingBoard=true;
   try{
+    await imageImports;
     if(await flushSave()||await openSaveRecovery())await action();
   }catch(err){
     console.error(err);
@@ -72,18 +85,24 @@ document.getElementById('homeBtn').onclick=()=>leaveBoard(()=>window.treeboardDe
 document.getElementById('minWin').onclick=()=>window.treeboardDesktop?.minimize();
 document.getElementById('maxWin').onclick=()=>window.treeboardDesktop?.maximizeToggle();
 document.getElementById('closeWin').onclick=()=>window.treeboardDesktop?.closeWindow();
-document.addEventListener('click',e=>{if(!exportMenu.contains(e.target)&&!e.target.closest('#exportBtn'))exportMenu.classList.remove('show')});
+document.addEventListener('click',e=>{if(!exportMenu.contains(e.target)&&!exportButton.contains(e.target))hideExportMenu()});
 
-imageInput.onchange=async()=>{
-  const files=[...imageInput.files];imageInput.value='';setTool('select');if(!files.length)return;
-  await importImageFiles(files,screenToWorld(innerWidth/2,innerHeight/2));
+let imageImports=Promise.resolve();
+function queueImageImport(files,origin){
+  if(!files.length||leavingBoard)return;
+  setTool('select');
+  imageImports=imageImports.then(()=>importImageFiles(files,origin));
+}
+imageInput.onchange=()=>{
+  const files=[...imageInput.files];imageInput.value='';
+  queueImageImport(files,screenToWorld(innerWidth/2,innerHeight/2));
 };
 canvas.addEventListener('dragover',e=>{e.preventDefault();dropOverlay.classList.add('show')});
 canvas.addEventListener('dragleave',()=>dropOverlay.classList.remove('show'));
-canvas.addEventListener('drop',async e=>{
+canvas.addEventListener('drop',e=>{
   e.preventDefault();dropOverlay.classList.remove('show');
   const files=[...e.dataTransfer.files].filter(f=>f.type&&f.type.startsWith('image/'));if(!files.length)return;
-  await importImageFiles(files,screenToWorld(e.clientX,e.clientY));
+  queueImageImport(files,screenToWorld(e.clientX,e.clientY));
 });
 minimap.addEventListener('click',e=>{
   const m=minimap._map;if(!m)return;const r=minimap.getBoundingClientRect(),x=(e.clientX-r.left)*156/r.width,y=(e.clientY-r.top)*92/r.height;
@@ -93,16 +112,54 @@ document.addEventListener('click',e=>{
   if(!floatingBar.contains(e.target)&&!colorPopover.contains(e.target)&&!arrangePopover.contains(e.target)&&!textAlignPopover.contains(e.target)&&!objectMenu.contains(e.target)){closeTransientMenus()}
 });
 
+function isTextEntry(target){
+  return target?.isContentEditable||target?.matches?.('input, textarea, select');
+}
+const treeboardClipboardType='application/x-treeboard-selection';
+document.addEventListener('copy',event=>{
+  if(saveDialog.open||isTextEntry(event.target)||!state.selection.length||!event.clipboardData)return;
+  const token=uid('treeboard-');
+  copiedPayload={token,data:buildCopyPayload(state.selection)};
+  event.clipboardData.setData(treeboardClipboardType,token);
+  event.preventDefault();
+});
+document.addEventListener('paste',event=>{
+  if(saveDialog.open||leavingBoard||drawingGesture||isTextEntry(event.target)||!event.clipboardData)return;
+  const clipboard=event.clipboardData;
+  const token=clipboard.getData(treeboardClipboardType);
+  if(token&&copiedPayload?.token===token){
+    event.preventDefault();
+    pastePayload(copiedPayload.data,28,28);
+    return;
+  }
+  const images=[...clipboard.files].filter(file=>file.type.startsWith('image/'));
+  if(!images.length)return;
+  event.preventDefault();
+  queueImageImport(images,screenToWorld(innerWidth/2,innerHeight/2));
+});
+
 /* Keyboard: modifiers never leak into single-key tools */
 document.addEventListener('keydown',e=>{
-  if(saveDialog.open)return;
+  if(saveDialog.open||e.isComposing)return;
   if(shapeDragKey(e)){if(e.key==='Escape')e.preventDefault();return}
-  const editing=document.activeElement?.isContentEditable||['INPUT','TEXTAREA'].includes(document.activeElement?.tagName);
+  const mod=e.ctrlKey||e.metaKey,k=e.key.toLowerCase();
+  if(mod&&k==='f'&&!e.altKey&&!e.shiftKey){
+    e.preventDefault();
+    hideExportMenu();
+    hidePenMenu();
+    openBoardSearch();
+    return;
+  }
+  if(e.key==='Escape'&&!searchPanel.hidden){
+    e.preventDefault();
+    closeBoardSearch();
+    return;
+  }
+  if(e.target.closest?.('#boardSearch'))return;
+  const editing=isTextEntry(e.target);
   if(e.code==='Space'&&!editing){spaceDown=true;canvas.classList.add('cursorGrab');e.preventDefault();return}
   if(editing)return;
-  const mod=e.ctrlKey||e.metaKey;
   if(mod){
-    const k=e.key.toLowerCase();
     if(k==='a'&&!e.altKey&&!e.shiftKey){
       e.preventDefault();
       if(state.tool!=='select')setTool('select');
@@ -111,8 +168,6 @@ document.addEventListener('keydown',e=>{
     }
     if(k==='z'){e.preventDefault();e.shiftKey?redo():undo();return}
     if(k==='y'){e.preventDefault();redo();return}
-    if(k==='c'){e.preventDefault();if(state.selection.length)copiedPayload=buildCopyPayload(state.selection);return}
-    if(k==='v'){e.preventDefault();if(copiedPayload)pastePayload(copiedPayload,28,28);return}
     if(k==='g'){e.preventDefault();e.shiftKey?ungroupSelection():groupSelection();return}
     if(e.shiftKey&&(e.key==='>'||e.key==='<')){
       const textObjs=selectedObjs().filter(o=>o.type==='text'&&!o.locked);
@@ -133,7 +188,7 @@ document.addEventListener('keydown',e=>{
     discrete(()=>unlockedSelected().forEach(o=>translateObject(o,dx,dy)));renderAll();return;
   }
   const map={v:'select',n:'sticky',t:'text',p:'pen',e:'eraser',c:'connector',o:'circle',r:'rect',i:'image'};
-  const t=map[e.key.toLowerCase()];if(t){e.preventDefault();setTool(t)}
+  const t=map[k];if(t){e.preventDefault();hidePenMenu();setTool(t)}
 });
 document.addEventListener('keyup',e=>{shapeDragKey(e);if(e.code==='Space'){spaceDown=false;canvas.classList.remove('cursorGrab')}});
 

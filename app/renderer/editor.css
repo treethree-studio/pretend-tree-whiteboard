@@ -20,8 +20,11 @@ button{border:0;background:none;color:inherit}
   background-size:34px 34px;background-position:0 0;touch-action:none;
 }
 #world{position:absolute;left:0;top:0;width:1px;height:1px;transform-origin:0 0;will-change:transform}
-#vectorLayer{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
-#elements{position:absolute;left:0;top:0}
+#vectorLayer,#highlightLayer{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
+#elements{position:absolute;left:0;top:0;isolation:isolate}
+#highlightLayer{z-index:2}
+.selectMode .highlightStroke{pointer-events:stroke;cursor:grab}
+#searchMarker{position:absolute;z-index:3;border:2px solid var(--accent);border-radius:6px;pointer-events:none}
 .ui{
   position:absolute;background:var(--panel);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
   border:1px solid rgba(0,0,0,.035);box-shadow:var(--shadow);
@@ -48,6 +51,23 @@ button{border:0;background:none;color:inherit}
 #topActions{right:154px;top:18px;height:40px;border-radius:13px;padding:4px;display:flex;align-items:center;z-index:90;-webkit-app-region:no-drag}
 .iconBtn{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;cursor:pointer;transition:.14s}
 .iconBtn:hover{background:#f4f4f2}
+#searchBtn[aria-expanded="true"]{background:#eeecff;color:var(--accent)}
+#boardSearch{top:66px;right:154px;width:320px;max-width:calc(100% - 24px);padding:9px;border-radius:13px;z-index:255}
+.searchControls{display:flex;gap:6px;align-items:center}
+#searchQuery{flex:1;min-width:0;padding:7px 9px;border:1px solid #e5e4e1;border-radius:7px}
+#closeSearch{font-size:20px}
+#searchStatus{margin:7px 3px;color:#666;font-size:12px}
+#searchResults{list-style:none;overflow:auto;max-height:min(300px,45vh);margin:0;padding:0}
+#searchResults button{display:flex;align-items:center;gap:8px;width:100%;padding:8px;border-radius:7px;text-align:left;cursor:pointer;font-size:13px}
+#searchResults button:hover,#searchResults button[aria-current="true"]{background:#eeecff}
+.searchResultType{flex:none;color:#666;font-size:11px}
+.searchResultText{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#penMenu{z-index:245;width:190px;padding:8px;border-radius:12px}
+.penChoices{display:flex;gap:4px}
+.penChoices button{flex:1;padding:7px;border-radius:7px;cursor:pointer;font-size:13px}
+.penChoices button:hover,.penChoices button[aria-pressed="true"]{background:#eeecff;color:#463ab8}
+#highlighterWidthControl:not([hidden]){display:flex;align-items:center;gap:6px;margin:8px 2px 0;font-size:12px}
+#highlighterWidth{flex:1;min-width:0;accent-color:var(--accent)}
 
 #toolbar{
   left:24px;top:50%;transform:translateY(-50%);width:50px;border-radius:15px;padding:7px;z-index:100;
@@ -241,7 +261,7 @@ button{border:0;background:none;color:inherit}
 #groupRotate::after{
   content:"";position:absolute;left:50%;top:11px;width:1px;height:22px;background:rgba(114,103,255,.58);transform:translateX(-50%)
 }
-#labels{position:absolute;left:0;top:0;pointer-events:none}
+#labels{position:absolute;left:0;top:0;z-index:1;pointer-events:none}
 .connectorLabel{
   position:absolute;z-index:90;transform:translate(-50%,-50%);padding:4px 7px;border-radius:7px;
   background:rgba(251,251,250,.95);border:1px solid rgba(0,0,0,.045);box-shadow:0 3px 10px rgba(0,0,0,.05);
@@ -276,5 +296,7 @@ button{border:0;background:none;color:inherit}
 .cursorGrab{cursor:grab!important}
 .cursorGrabbing{cursor:grabbing!important}
 .cursorEraser{cursor:none!important}
-#exportMenu{position:absolute;right:154px;top:64px;z-index:260;width:148px;padding:6px;border-radius:12px;display:none;background:rgba(255,255,255,.96);backdrop-filter:blur(16px);border:1px solid #e9e9e6;box-shadow:0 14px 36px rgba(20,20,20,.10)}
-#exportMenu.show{display:block}#exportMenu button{width:100%;height:34px;border:0;background:none;border-radius:8px;text-align:left;padding:0 10px;cursor:pointer;font-size:12px}#exportMenu button:hover{background:#f3f3f1}
+#exportMenu{position:absolute;right:154px;top:64px;z-index:260;width:176px;padding:6px;border-radius:12px;display:none;background:rgba(255,255,255,.96);backdrop-filter:blur(16px);border:1px solid #e9e9e6;box-shadow:0 14px 36px rgba(20,20,20,.10)}
+#exportMenu.show{display:block}#exportMenu button{width:100%;height:34px;border:0;background:none;border-radius:8px;text-align:left;padding:0 10px;cursor:pointer;font-size:12px}
+#exportMenu button:enabled:hover{background:#f3f3f1}
+#exportMenu button:disabled{color:#8a8a86;cursor:default}

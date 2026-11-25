@@ -93,11 +93,12 @@ function positionEndpointHandles(){
 function setTool(t){
   if(t==='image'){imageInput.click();return}
   state.tool=t;state.selection=[];updateSelectionUI();
-  $$('.tool[data-tool]').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));
+  $$('.tool[data-tool]').forEach(b=>b.classList.toggle('active',b.dataset.tool===(t==='highlighter'?'pen':t)));
   app.classList.toggle('connectorMode',t==='connector');
+  app.classList.toggle('selectMode',t==='select');
   canvas.classList.remove('cursorCross','cursorText','cursorEraser');
   eraserCursor.classList.remove('show');
-  if(['sticky','pen','connector','rect','circle'].includes(t))canvas.classList.add('cursorCross');
+  if(['sticky','pen','highlighter','connector','rect','circle'].includes(t))canvas.classList.add('cursorCross');
   if(t==='text')canvas.classList.add('cursorText');
   if(t==='eraser'){canvas.classList.add('cursorEraser');updateEraserCursorSize()}
 }
@@ -142,6 +143,7 @@ function beginEdit(id,pointer){
     o.text=value;
     pushHistory(before);
     scheduleSave();
+    refreshBoardSearch();
   },{once:true});
 }
 

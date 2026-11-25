@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const app=$('#app'),canvas=$('#canvas'),world=$('#world'),elementsRoot=$('#elements'),labelsRoot=$('#labels');
-const connectorGroup=$('#connectorGroup'),drawingGroup=$('#drawingGroup'),draftConnector=$('#draftConnector');
+const connectorGroup=$('#connectorGroup'),drawingGroup=$('#drawingGroup'),highlightLayer=$('#highlightLayer'),draftConnector=$('#draftConnector');
 const boardTitle=$('#boardTitle'),floatingBar=$('#floatingBar'),colorPopover=$('#colorPopover'),arrangePopover=$('#arrangePopover'),textAlignPopover=$('#textAlignPopover'),objectMenu=$('#objectMenu');
 const marquee=$('#marquee'),guideV=$('#guideV'),guideH=$('#guideH');
 const endpointFrom=$('#endpointFrom'),endpointTo=$('#endpointTo'),eraserCursor=$('#eraserCursor');
@@ -16,6 +16,7 @@ const LINE_COLORS=['#202020','#666666','#E85D5D','#4263EB','#7267FF','#3A8F65'];
 const DEFAULTS={
   sticky:'#FFF2A7', text:'#202020', line:'#202020', shapeFill:'transparent', shapeStroke:'#202020'
 };
+const HIGHLIGHT_OPACITY=.38;
 
 let state={
   title:'Untitled Board',
@@ -24,6 +25,7 @@ let state={
   objects:[],
   selection:[],
   pen:{color:'#202020',width:4},
+  highlighter:{color:'#FFDF38',width:24},
   eraserRadius:14
 };
 let history=[],future=[],gestureBefore=null;

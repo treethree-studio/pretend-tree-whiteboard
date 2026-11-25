@@ -1,5 +1,30 @@
-async function exportPNG(){const out=await buildExportCanvas();if(!out)return;const dataUrl=out.toDataURL('image/png');if(window.treeboardDesktop){const r=await window.treeboardDesktop.exportPNG({dataUrl,title:state.title,width:out.width,height:out.height});if(r?.ok)showToast('PNG 已导出');else if(r?.error)showToast(r.error);return}out.toBlob(blob=>{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(state.title||'whiteboard')+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)},'image/png')}
-async function exportPDF(){const out=await buildExportCanvas();if(!out)return;const dataUrl=out.toDataURL('image/png');if(window.treeboardDesktop){const r=await window.treeboardDesktop.exportPDF({dataUrl,title:state.title,width:out.width,height:out.height});if(r?.ok)showToast('PDF 已导出');else if(r?.error)showToast(r.error);return}showToast('桌面版支持 PDF 导出')}
+async function exportBoard(format,selectionOnly){
+  const title=(state.title||'白板')+(selectionOnly?' - 选中内容':'');
+  try{
+    const out=await buildExportCanvas(selectionOnly);
+    if(!out)return;
+    const desktop=window.treeboardDesktop;
+    if(desktop){
+      const save=format==='PNG'?desktop.exportPNG:desktop.exportPDF;
+      const result=await save({dataUrl:out.toDataURL('image/png'),title,width:out.width,height:out.height});
+      if(result?.ok)showToast(format+' 已导出');
+      else if(result?.error)showToast(result.error);
+      return;
+    }
+    if(format==='PDF')return showToast('桌面版支持 PDF 导出');
+    out.toBlob(blob=>{
+      if(!blob)return showToast('PNG 导出失败');
+      const download=document.createElement('a');
+      download.href=URL.createObjectURL(blob);
+      download.download=title+'.png';
+      download.click();
+      setTimeout(()=>URL.revokeObjectURL(download.href),1000);
+    },'image/png');
+  }catch(err){
+    console.error(err);
+    showToast('导出失败，请检查白板中的图片后重试');
+  }
+}
 
 const shapePreview=document.createElement('div');
 shapePreview.hidden=true;
@@ -39,7 +64,7 @@ function cancelShapeDrag(){
 
 /* Pointer flow: pan has highest priority in capture phase */
 canvas.addEventListener('pointerdown',ev=>{
-  if(shapeDrag)return;
+  if(!ev.isPrimary||shapeDrag||drawingGesture)return;
   if((spaceDown||ev.button===1)){
     ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();
     panning={sx:ev.clientX,sy:ev.clientY,ox:state.camera.x,oy:state.camera.y};canvas.classList.add('cursorGrabbing');canvas.setPointerCapture(ev.pointerId);
@@ -48,17 +73,26 @@ canvas.addEventListener('pointerdown',ev=>{
 
 canvas.addEventListener('pointerdown',ev=>{
   closeTransientMenus();
-  if(ev.button!==0||panning||shapeDrag)return;
+  hidePenMenu();
+  if(!ev.isPrimary||ev.button!==0||panning||shapeDrag||drawingGesture)return;
   const p=screenToWorld(ev.clientX,ev.clientY);
   if(state.tool==='rect'||state.tool==='circle'){startShapeDrag(ev,p);return}
   if(state.tool==='sticky'||state.tool==='text'){createObject(state.tool,p);return}
-  if(state.tool==='pen'){
-    beginGesture();state.selection=[];drawingGesture={id:uid('d'),type:'drawing',points:[p],color:state.pen.color,width:state.pen.width,z:zMax()+1};
-    state.objects.push(drawingGesture);markDirty();return;
+  if(state.tool==='pen'||state.tool==='highlighter'){
+    beginGesture();
+    setSelection([]);
+    const highlighter=state.tool==='highlighter';
+    const {color,width}=highlighter?state.highlighter:state.pen;
+    drawingGesture={id:uid('d'),type:'drawing',points:[p],color,width,z:zMax()+1};
+    if(highlighter)drawingGesture.highlighter=true;
+    state.objects.push(drawingGesture);
+    canvas.setPointerCapture(ev.pointerId);
+    markDirty();
+    return;
   }
   if(state.tool==='eraser'){beginGesture();erasing={changed:false};eraseAt(p);return}
   if(state.tool==='select'){
-    const hit=hitVector(p);
+    const hit=getObj(ev.target.dataset.drawingId)||hitVector(p);
     if(hit){
       if(hit.locked){setSelection(selectionWithGroup(hit.id,ev.altKey));return}
       const ids=selectionWithGroup(hit.id,ev.altKey);
@@ -89,6 +123,7 @@ canvas.addEventListener('pointermove',ev=>{
     }return;
   }
   if(drawingGesture){
+    if(!ev.isPrimary)return;
     const p=screenToWorld(ev.clientX,ev.clientY),last=drawingGesture.points.at(-1),min=2/state.camera.scale;
     if(dist(p,last)>=min){drawingGesture.points.push(p);markDirty()}return;
   }
@@ -141,7 +176,19 @@ canvas.addEventListener('pointerup',ev=>{
   if(groupTransform){groupTransform=null;commitGesture();renderAll();return}
   if(labelDrag){labelDrag=null;commitGesture();renderLabels();return}
   if(drawingGesture){
-    drawingGesture.points=rdp(drawingGesture.points,.75/state.camera.scale);drawingGesture=null;commitGesture();markDirty();return;
+    if(!ev.isPrimary)return;
+    const p=screenToWorld(ev.clientX,ev.clientY);
+    if(dist(p,drawingGesture.points.at(-1))>=2/state.camera.scale)drawingGesture.points.push(p);
+    if(drawingGesture.points.length>1){
+      drawingGesture.points=rdp(drawingGesture.points,.75/state.camera.scale);
+      commitGesture();
+    }else{
+      state.objects=state.objects.filter(o=>o!==drawingGesture);
+      cancelGesture();
+    }
+    drawingGesture=null;
+    markDirty();
+    return;
   }
   if(erasing){erasing=null;commitGesture();markDirty();return}
   if(marqueeStart){endMarquee();return}
@@ -155,6 +202,11 @@ canvas.addEventListener('pointercancel',ev=>{
   if(shapeDrag){
     if(ev.pointerId===shapeDrag.pointerId)cancelShapeDrag();
     return;
+  }
+  if(drawingGesture){
+    if(!ev.isPrimary)return;
+    state.objects=state.objects.filter(o=>o!==drawingGesture);
+    markDirty();
   }
   panning=null;dragging=null;resizing=null;rotating=null;groupTransform=null;labelDrag=null;drawingGesture=null;erasing=null;
   marqueeStart=null;marquee.hidden=true;canvas.classList.remove('cursorGrabbing');hideGuides();cancelGesture();
@@ -186,6 +238,36 @@ document.addEventListener('pointermove',e=>{if(endpointDrag)moveEndpointDrag(e.c
 document.addEventListener('pointerup',e=>{if(endpointDrag)endEndpointDrag(e.clientX,e.clientY);else if(connectorDraft)completeConnectorDraft(e.clientX,e.clientY)});
 
 /* UI events */
-$$('.tool[data-tool]').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
+const penButton=$('[data-tool="pen"]'),penMenu=$('#penMenu'),penChoices=$$('[data-pen-mode]');
+function updatePenMenu(){
+  penChoices.forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.penMode===state.tool)));
+  $('#highlighterWidthControl').hidden=state.tool!=='highlighter';
+}
+function hidePenMenu(){
+  penMenu.hidden=true;
+  penButton.setAttribute('aria-expanded','false');
+}
+penButton.onclick=()=>{
+  if(!penMenu.hidden)return hidePenMenu();
+  if(state.tool!=='pen'&&state.tool!=='highlighter')setTool('pen');
+  updatePenMenu();
+  penMenu.hidden=false;
+  penButton.setAttribute('aria-expanded','true');
+  const anchor=penButton.getBoundingClientRect(),panel=penMenu.getBoundingClientRect();
+  penMenu.style.left=(anchor.right+10)+'px';
+  penMenu.style.top=clamp(anchor.top,8,innerHeight-panel.height-8)+'px';
+};
+penChoices.forEach(button=>button.onclick=()=>{
+  setTool(button.dataset.penMode);
+  updatePenMenu();
+});
+$('#highlighterWidth').oninput=event=>{
+  state.highlighter.width=Number(event.target.value);
+  $('#highlighterWidthValue').value=event.target.value;
+};
+document.addEventListener('click',event=>{
+  if(!penMenu.contains(event.target)&&!penButton.contains(event.target))hidePenMenu();
+});
+$$('.tool[data-tool]:not([data-tool="pen"])').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
 $('#undoBtn').onclick=undo;$('#redoBtn').onclick=redo;$('#zoomOut').onclick=()=>zoomCenter(.86);$('#zoomIn').onclick=()=>zoomCenter(1.16);$('#fitBtn').onclick=fitContent;
 $('#miniBtn').onclick=()=>miniWrap.classList.toggle('show');

@@ -1,20 +1,22 @@
 function eraseAt(worldP){
   const radius=state.eraserRadius/state.camera.scale,newObjects=[];let changed=false;
   for(const o of state.objects){
-    if(o.type!=='drawing'){newObjects.push(o);continue}
+    if(o.type!=='drawing'||o.locked){newObjects.push(o);continue}
     const pts=o.points;if(pts.length<2){newObjects.push(o);continue}
     const sampled=[];
     for(let i=0;i<pts.length-1;i++){
       const a=pts[i],b=pts[i+1],len=dist(a,b),steps=Math.max(1,Math.ceil(len/(radius*.45)));
       for(let s=0;s<steps;s++){const t=s/steps;sampled.push({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t})}
     }sampled.push(pts.at(-1));
-    let current=[],parts=[];
+    let current=[],parts=[],strokeChanged=false;
     const flush=()=>{if(current.length>=2)parts.push(current);current=[]};
     for(const p of sampled){
-      if(dist(p,worldP)<=radius+(o.width||4)/2){flush();changed=true}else current.push(p)
+      if(dist(p,worldP)<=radius+(o.width||4)/2){flush();strokeChanged=true}else current.push(p)
     }flush();
-    if(!changed||parts.length===1&&parts[0].length===sampled.length){newObjects.push(o)}
-    else parts.forEach(part=>newObjects.push({...o,id:uid('d'),points:rdp(part,.55/state.camera.scale)}));
+    if(strokeChanged){
+      changed=true;
+      parts.forEach(part=>newObjects.push({...o,id:uid('d'),points:rdp(part,.55/state.camera.scale)}));
+    }else newObjects.push(o);
   }
   if(changed){state.objects=newObjects;state.selection=state.selection.filter(id=>getObj(id));markDirty()}
   return changed;
@@ -168,12 +170,23 @@ function strokeSmoothCanvas(ctx,pts){
   }
   const last=pts.at(-1);ctx.lineTo(last.x,last.y);ctx.stroke();
 }
-async function buildExportCanvas(){
-  if(!state.objects.length)return showToast('画布还没有内容');
-  const b=unionBounds(state.objects),pad=80,minX=b.x-pad,minY=b.y-pad,W=Math.max(420,b.w+pad*2),H=Math.max(320,b.h+pad*2);
+function paintExportDrawing(ctx,o){
+  ctx.strokeStyle=o.color||DEFAULTS.line;
+  ctx.lineWidth=o.width||4;
+  ctx.lineCap='round';
+  ctx.lineJoin='round';
+  strokeSmoothCanvas(ctx,o.points);
+}
+async function buildExportCanvas(selectionOnly=false){
+  const selected=new Set(state.selection);
+  const objects=deep(selectionOnly?state.objects.filter(o=>selected.has(o.id)):state.objects);
+  if(!objects.length)return showToast(selectionOnly?'请先选中要导出的内容':'画布还没有内容');
+  const b=unionBounds(objects),pad=selectionOnly?36:80,minX=b.x-pad,minY=b.y-pad;
+  const W=Math.max(selectionOnly?1:420,b.w+pad*2),H=Math.max(selectionOnly?1:320,b.h+pad*2);
   const scale=Math.min(2,3600/Math.max(W,H)),out=document.createElement('canvas');out.width=Math.ceil(W*scale);out.height=Math.ceil(H*scale);
   const ctx=out.getContext('2d');ctx.scale(scale,scale);ctx.translate(-minX,-minY);ctx.fillStyle='#fbfbfa';ctx.fillRect(minX,minY,W,H);
-  for(const o of state.objects.filter(x=>x.type==='connector').sort((a,b)=>(a.z||1)-(b.z||1))){
+  const byLayer=(a,b)=>(a.z||1)-(b.z||1);
+  for(const o of objects.filter(x=>x.type==='connector').sort(byLayer)){
     const g=connectorGeom(o);ctx.strokeStyle=o.color||DEFAULTS.line;ctx.lineWidth=o.width||3;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(g.p1.x,g.p1.y);ctx.bezierCurveTo(g.c1.x,g.c1.y,g.c2.x,g.c2.y,g.p2.x,g.p2.y);ctx.stroke();
     if(o.arrow==='end'||o.arrow==='both')drawArrow(ctx,g.c2,g.p2,o.color||DEFAULTS.line,o.width||3);
     if(o.arrow==='both')drawArrow(ctx,g.c1,g.p1,o.color||DEFAULTS.line,o.width||3);
@@ -185,16 +198,21 @@ async function buildExportCanvas(){
       ctx.fillStyle='#171717';ctx.fillText(o.label.text||'关系',x,y);
     }
   }
-  for(const o of state.objects.filter(x=>x.type==='drawing').sort((a,b)=>(a.z||1)-(b.z||1))){
-    if(o.points.length<2)continue;ctx.strokeStyle=o.color||DEFAULTS.line;ctx.lineWidth=o.width||4;ctx.lineCap='round';ctx.lineJoin='round';strokeSmoothCanvas(ctx,o.points);
+  const drawings=objects.filter(o=>o.type==='drawing').sort(byLayer);
+  for(const o of drawings){
+    if(!o.highlighter)paintExportDrawing(ctx,o);
   }
   const imgs=new Map();
-  for(const o of state.objects.filter(x=>x.type==='image')){
-    try{
-      const blob=await getAssetBlob(o.assetId);if(blob){const url=URL.createObjectURL(blob),img=new Image();await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=url});imgs.set(o.id,{img,url})}
-    }catch(e){}
+  for(const o of objects.filter(x=>x.type==='image')){
+    if(imgs.has(o.assetId))continue;
+    const url=await getAssetUrl(o.assetId);
+    if(!url)throw new Error('图片资源不可用');
+    const img=new Image();
+    img.src=url;
+    await img.decode();
+    imgs.set(o.assetId,img);
   }
-  for(const o of state.objects.filter(isElement).sort((a,b)=>(a.z||1)-(b.z||1))){
+  for(const o of objects.filter(isElement).sort(byLayer)){
     const cx=o.x+o.w/2,cy=o.y+o.h/2;ctx.save();ctx.translate(cx,cy);ctx.rotate((o.rot||0)*Math.PI/180);ctx.translate(-cx,-cy);
     if(o.type==='sticky'){
       ctx.shadowColor='rgba(35,35,35,.13)';ctx.shadowBlur=24;ctx.shadowOffsetY=10;ctx.fillStyle=o.fill||DEFAULTS.sticky;ctx.fillRect(o.x,o.y,o.w,o.h);ctx.shadowColor='transparent';
@@ -208,16 +226,20 @@ async function buildExportCanvas(){
       ctx.beginPath();if(o.type==='rect')ctx.rect(o.x,o.y,o.w,o.h);else ctx.ellipse(cx,cy,o.w/2,o.h/2,0,0,Math.PI*2);
       if(o.fill&&o.fill!=='transparent')ctx.fill();ctx.stroke();
     }else if(o.type==='image'){
-      const pack=imgs.get(o.id);
+      const img=imgs.get(o.assetId);
       if(o.imageStyle==='card'){
         ctx.shadowColor='rgba(30,30,30,.13)';ctx.shadowBlur=22;ctx.shadowOffsetY=9;ctx.fillStyle='#fff';ctx.fillRect(o.x,o.y,o.w,o.h);ctx.shadowColor='transparent';
-        if(pack)ctx.drawImage(pack.img,o.x+6,o.y+6,o.w-12,o.h-12);
-      }else if(pack){
-        ctx.drawImage(pack.img,o.x,o.y,o.w,o.h);
+        ctx.drawImage(img,o.x+6,o.y+6,o.w-12,o.h-12);
+      }else{
+        ctx.drawImage(img,o.x,o.y,o.w,o.h);
       }
     }
     ctx.restore();
   }
-  imgs.forEach(p=>URL.revokeObjectURL(p.url));
+  ctx.globalAlpha=HIGHLIGHT_OPACITY;
+  for(const o of drawings){
+    if(o.highlighter)paintExportDrawing(ctx,o);
+  }
+  ctx.globalAlpha=1;
   return out;
 }
