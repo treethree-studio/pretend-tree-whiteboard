@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { randomUUID } = require('node:crypto');
 
 app.setName('假装一棵树');
 
@@ -85,16 +86,23 @@ function blankBoard(title = '未命名白板') {
 function writeBoardAtomic(filePath, board) {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
-  const temp = `${filePath}.tmp`;
+  const temp = `${filePath}.${randomUUID()}.tmp`;
   const payload = {
     ...board,
     format: 'treeboard',
     version: 1,
     updatedAt: new Date().toISOString()
   };
-  fs.writeFileSync(temp, JSON.stringify(payload), 'utf8');
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  fs.renameSync(temp, filePath);
+  try {
+    fs.writeFileSync(temp, JSON.stringify(payload), { encoding: 'utf8', flag: 'wx', flush: true });
+    fs.renameSync(temp, filePath);
+  } finally {
+    try {
+      fs.rmSync(temp, { force: true });
+    } catch (err) {
+      console.warn('Unable to clean up a temporary board file', err);
+    }
+  }
 }
 
 function readBoard(filePath) {
@@ -192,7 +200,14 @@ app.on('second-instance', (_event, argv) => {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   }
-  if (filePath) openEditor(path.resolve(filePath));
+  if (filePath) {
+    const nextPath = path.resolve(filePath);
+    if (mainWindow && currentBoardPath) {
+      if (nextPath !== currentBoardPath) mainWindow.webContents.send('app:request-open', nextPath);
+    } else {
+      openEditor(nextPath);
+    }
+  }
 });
 
 app.whenReady().then(async () => {
@@ -276,15 +291,39 @@ ipcMain.handle('board:get-current', () => {
   }
 });
 
+function saveBoardAt(filePath, board) {
+  writeBoardAtomic(filePath, board);
+  currentBoardPath = filePath;
+  try {
+    addRecent(filePath);
+  } catch (err) {
+    console.warn('Unable to update recent boards', err);
+  }
+  return { ok: true, path: filePath };
+}
+
 ipcMain.handle('board:save-current', (_event, board) => {
   try {
-    if (!currentBoardPath) {
-      const dir = ensureSaveDirectory();
-      currentBoardPath = uniqueBoardPath(dir, board?.title || '未命名白板');
+    const filePath = currentBoardPath || uniqueBoardPath(ensureSaveDirectory(), board?.title || '未命名白板');
+    return saveBoardAt(filePath, board);
+  } catch (err) {
+    return { ok: false, error: String(err.message || err) };
+  }
+});
+
+ipcMain.handle('board:save-as', async (_event, board) => {
+  try {
+    const suggested = sanitizeFileName(board?.title || '未命名白板') + '.treeboard';
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: '另存白板',
+      defaultPath: path.join(app.getPath('documents'), suggested),
+      filters: [{ name: '假装一棵树 白板', extensions: ['treeboard'] }]
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+    if (path.extname(result.filePath).toLowerCase() !== '.treeboard') {
+      return { ok: false, error: '请使用 .treeboard 文件扩展名。' };
     }
-    writeBoardAtomic(currentBoardPath, board);
-    addRecent(currentBoardPath);
-    return { ok: true, path: currentBoardPath };
+    return saveBoardAt(result.filePath, board);
   } catch (err) {
     return { ok: false, error: String(err.message || err) };
   }
@@ -298,10 +337,15 @@ ipcMain.handle('board:rename-current', (_event, title) => {
     if (path.resolve(nextPath) !== path.resolve(currentBoardPath)) {
       let finalPath = nextPath;
       if (fs.existsSync(finalPath)) finalPath = uniqueBoardPath(path.dirname(currentBoardPath), nextTitle);
-      fs.renameSync(currentBoardPath, finalPath);
-      removeRecent(currentBoardPath);
+      const oldPath = currentBoardPath;
+      fs.renameSync(oldPath, finalPath);
       currentBoardPath = finalPath;
-      addRecent(currentBoardPath);
+      try {
+        removeRecent(oldPath);
+        addRecent(finalPath);
+      } catch (err) {
+        console.warn('Unable to update recent boards', err);
+      }
     }
     return { ok: true, path: currentBoardPath, title: path.basename(currentBoardPath, '.treeboard') };
   } catch (err) {

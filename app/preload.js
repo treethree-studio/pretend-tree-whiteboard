@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('treeboardDesktop', {
   openBoardPath: (filePath) => ipcRenderer.invoke('board:open-path', filePath),
   getCurrentBoard: () => ipcRenderer.invoke('board:get-current'),
   saveCurrent: (board) => ipcRenderer.invoke('board:save-current', board),
+  saveAs: (board) => ipcRenderer.invoke('board:save-as', board),
   renameCurrent: (title) => ipcRenderer.invoke('board:rename-current', title),
   goHome: () => ipcRenderer.invoke('nav:home'),
   showInFolder: (filePath) => ipcRenderer.invoke('file:show-in-folder', filePath),
@@ -19,5 +20,6 @@ contextBridge.exposeInMainWorld('treeboardDesktop', {
   maximizeToggle: () => ipcRenderer.invoke('window:maximize-toggle'),
   closeWindow: () => ipcRenderer.invoke('window:close'),
   onBeforeClose: (callback) => ipcRenderer.on('app:request-close', () => callback()),
+  onOpenBoard: (callback) => ipcRenderer.on('app:request-open', (_event, filePath) => callback(filePath)),
   confirmClose: () => ipcRenderer.invoke('app:confirm-close')
 });
