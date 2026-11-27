@@ -1,6 +1,6 @@
 {
   "name": "pretend-tree-whiteboard",
-  "version": "0.1.0-alpha",
+  "version": "0.3.1-alpha",
   "description": "假装一棵树 - 本地优先极简白板",
   "main": "main.js",
   "productName": "假装一棵树",
