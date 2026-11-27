@@ -5,25 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>假装一棵树</title>
   <link rel="stylesheet" href="./editor.css">
+  <link rel="stylesheet" href="./board-text.css">
 
 </head>
 <body>
 <div id="app" class="selectMode">
   <div id="canvas">
     <div id="world">
-      <svg id="vectorLayer" width="1" height="1">
-        <defs>
-          <marker id="arrowEnd" markerWidth="10" markerHeight="10" refX="8.4" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
-            <path d="M0,0 L0,6 L8.5,3 z" fill="context-stroke"></path>
-          </marker>
-        </defs>
-        <g id="connectorGroup"></g>
-        <g id="drawingGroup"></g>
+      <div id="objectLayers">
+        <div id="elements"></div>
+        <div id="vectors"></div>
+        <div id="labels"></div>
+      </div>
+      <svg id="draftLayer" width="1" height="1" aria-hidden="true">
         <path id="draftConnector" d="" fill="none" stroke="#7267ff" stroke-width="2.3" stroke-linecap="round" stroke-dasharray="5 5" style="display:none"></path>
       </svg>
-      <div id="elements"></div>
-      <div id="labels"></div>
-      <svg id="highlightLayer" width="1" height="1" aria-hidden="true"></svg>
       <div id="searchMarker" hidden aria-hidden="true"></div>
     </div>
     <div id="marquee" hidden></div>
@@ -64,9 +60,9 @@
     <button class="tool active" data-tool="select"><svg class="ico" viewBox="0 0 24 24"><path d="M5 3l13 8-6 2-2 6L5 3z"></path></svg><span class="tip">选择 V</span></button>
     <button class="tool" data-tool="sticky"><svg class="ico" viewBox="0 0 24 24"><path d="M5 4h14v12l-4 4H5z"></path><path d="M15 20v-4h4"></path></svg><span class="tip">便签 N</span></button>
     <button class="tool" data-tool="text"><svg class="ico" viewBox="0 0 24 24"><path d="M5 5h14"></path><path d="M12 5v14"></path></svg><span class="tip">文字 T</span></button>
-    <button class="tool" data-tool="pen" aria-label="画笔和荧光笔" aria-controls="penMenu" aria-expanded="false"><svg class="ico" viewBox="0 0 24 24"><path d="M4 20l4-1 10-10a2 2 0 0 0-3-3L5 16z"></path><path d="M13.5 8.5l3 3"></path></svg><span class="tip">画笔 P</span></button>
+    <button class="tool" data-tool="pen" aria-label="画笔和荧光笔" aria-controls="penMenu" aria-expanded="false"><svg class="ico" viewBox="0 0 24 24"><path d="M4 20l4-1 10-10a2 2 0 0 0-3-3L5 16z"></path><path d="M13.5 8.5l3 3"></path></svg><span class="tip">画笔 P · 荧光笔 H</span></button>
     <button class="tool" data-tool="eraser"><svg class="ico" viewBox="0 0 24 24"><path d="M7 18l-3-3a2 2 0 0 1 0-2.8L11.2 5a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L15.8 18H7z"></path><path d="M10 8l6 6"></path><path d="M8 21h11"></path></svg><span class="tip">橡皮擦 E</span></button>
-    <button class="tool" data-tool="connector"><svg class="ico" viewBox="0 0 24 24"><path d="M5 18L19 6"></path><path d="M13 6h6v6"></path></svg><span class="tip">连线 C</span></button>
+    <button class="tool" data-tool="connector"><svg class="ico" viewBox="0 0 24 24"><path d="M5 18L19 6"></path><path d="M13 6h6v6"></path></svg><span class="tip">连线 C · Alt 松手保留自由端</span></button>
     <div class="sep"></div>
     <button class="tool" data-tool="circle"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle></svg><span class="tip">圆形 O</span></button>
     <button class="tool" data-tool="rect"><svg class="ico" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"></rect></svg><span class="tip">矩形 R</span></button>
@@ -78,7 +74,7 @@
   <div id="penMenu" class="ui" hidden>
     <div class="penChoices" aria-label="画笔类型">
       <button type="button" data-pen-mode="pen" aria-pressed="true">画笔</button>
-      <button type="button" data-pen-mode="highlighter" aria-pressed="false">荧光笔</button>
+      <button type="button" data-pen-mode="highlighter" aria-pressed="false" title="按住 Shift 划直线">荧光笔</button>
     </div>
     <label id="highlighterWidthControl" for="highlighterWidth" hidden>
       粗细
@@ -89,10 +85,21 @@
 
   <div id="zoomPanel" class="ui">
     <button id="miniBtn" title="小地图"><svg class="ico" viewBox="0 0 24 24"><path d="M4 6l5-2 6 2 5-2v14l-5 2-6-2-5 2z"></path><path d="M9 4v14M15 6v14"></path></svg></button>
+    <button id="bookmarkBtn" type="button" title="白板书签" aria-label="白板书签" aria-controls="boardBookmarks" aria-expanded="false"><svg class="ico" viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"></path></svg></button>
     <button id="zoomOut">−</button><div id="zoomLabel">100%</div><button id="zoomIn">＋</button>
     <button id="fitBtn" title="适应全部内容"><svg class="ico" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"></path></svg></button>
   </div>
   <div id="miniWrap" class="ui"><canvas id="minimap" width="312" height="184"></canvas></div>
+  <section id="boardBookmarks" class="ui" aria-label="白板书签" hidden>
+    <h2>书签</h2>
+    <form id="bookmarkForm">
+      <input id="bookmarkName" type="text" maxlength="60" placeholder="给当前位置命名" aria-label="书签名称" required>
+      <button id="bookmarkSave" type="submit">添加</button>
+      <button id="bookmarkCancel" type="button" hidden>取消</button>
+    </form>
+    <p id="bookmarkEmpty">还没有书签</p>
+    <ul id="bookmarkList"></ul>
+  </section>
 
   <div id="floatingBar" class="ui"></div>
   <div id="groupBox">
@@ -103,9 +110,11 @@
     <div id="groupRotate"></div>
   </div>
   <div id="colorPopover" class="ui"></div>
+  <button id="textMarkButton" type="button" class="ui" tabindex="-1" hidden>高亮</button>
   <div id="arrangePopover" class="ui"></div>
   <div id="textAlignPopover" class="ui"></div>
-  <div id="objectMenu" class="ui"></div>
+  <div id="objectMenu" class="ui" role="menu" aria-label="对象操作"></div>
+  <div id="lowerLayerMarker" aria-hidden="true" hidden></div>
   <div id="endpointFrom" class="endpointHandle"></div>
   <div id="endpointTo" class="endpointHandle"></div>
   <div id="eraserCursor"></div>
@@ -124,16 +133,19 @@
   </div>
 </dialog>
 
+<script src="./board-render.js"></script>
 <script src="./editor.1a.js"></script>
 <script src="./editor.1b.js"></script>
 <script src="./editor.1c.js"></script>
 <script src="./editor.1d.js"></script>
 <script src="./editor.1e.js"></script>
+<script src="./editor.text-marks.js"></script>
 <script src="./editor.2.js"></script>
 <script src="./editor.3.js"></script>
 <script src="./editor.4.js"></script>
 <script src="./editor.5.js"></script>
 <script src="./editor.search.js"></script>
+<script src="./editor.bookmarks.js"></script>
 <script src="./editor.6.js"></script>
 </body>
 </html>

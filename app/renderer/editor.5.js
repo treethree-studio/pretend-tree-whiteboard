@@ -64,8 +64,8 @@ function cancelShapeDrag(){
 
 /* Pointer flow: pan has highest priority in capture phase */
 canvas.addEventListener('pointerdown',ev=>{
-  if(!ev.isPrimary||shapeDrag||drawingGesture)return;
-  if((spaceDown||ev.button===1)){
+  if(!ev.isPrimary||shapeDrag||drawingGesture||connectorGesture)return;
+  if((spaceDown&&ev.button===0)||ev.button===1){
     ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();
     panning={sx:ev.clientX,sy:ev.clientY,ox:state.camera.x,oy:state.camera.y};canvas.classList.add('cursorGrabbing');canvas.setPointerCapture(ev.pointerId);
   }
@@ -74,7 +74,8 @@ canvas.addEventListener('pointerdown',ev=>{
 canvas.addEventListener('pointerdown',ev=>{
   closeTransientMenus();
   hidePenMenu();
-  if(!ev.isPrimary||ev.button!==0||panning||shapeDrag||drawingGesture)return;
+  if(!ev.isPrimary||ev.button!==0||panning||shapeDrag||drawingGesture||connectorGesture)return;
+  if(state.tool==='connector'){startConnectorDraft(ev);return}
   const p=screenToWorld(ev.clientX,ev.clientY);
   if(state.tool==='rect'||state.tool==='circle'){startShapeDrag(ev,p);return}
   if(state.tool==='sticky'||state.tool==='text'){createObject(state.tool,p);return}
@@ -92,7 +93,7 @@ canvas.addEventListener('pointerdown',ev=>{
   }
   if(state.tool==='eraser'){beginGesture();erasing={changed:false};eraseAt(p);return}
   if(state.tool==='select'){
-    const hit=getObj(ev.target.dataset.drawingId)||hitVector(p);
+    const hit=getObj(ev.target.closest('.vectorObject')?.dataset.id)||hitVector(p);
     if(hit){
       if(hit.locked){setSelection(selectionWithGroup(hit.id,ev.altKey));return}
       const ids=selectionWithGroup(hit.id,ev.altKey);
@@ -104,7 +105,17 @@ canvas.addEventListener('pointerdown',ev=>{
     if(!ev.shiftKey)setSelection([]);startMarquee(ev);
   }
 });
+function updateDrawingPoint(event){
+  const point=screenToWorld(event.clientX,event.clientY),minimum=2/state.camera.scale;
+  const points=drawingGesture.points,first=points[0];
+  if(drawingGesture.highlighter&&event.shiftKey){
+    const line=dist(point,first)>=minimum?[first,point]:[first];
+    drawingGesture.points=line;markDirty();return;
+  }
+  if(dist(point,points.at(-1))>=minimum){points.push(point);markDirty()}
+}
 canvas.addEventListener('pointermove',ev=>{
+  if(connectorGesture){updateConnectorGesture(ev);return}
   if(shapeDrag){
     if(ev.pointerId===shapeDrag.pointerId){
       shapeDrag.lastPointer=ev;
@@ -114,24 +125,26 @@ canvas.addEventListener('pointermove',ev=>{
   }
   if(state.tool==='eraser'){eraserCursor.style.left=ev.clientX+'px';eraserCursor.style.top=ev.clientY+'px';eraserCursor.classList.add('show')}
   if(panning){state.camera.x=panning.ox+ev.clientX-panning.sx;state.camera.y=panning.oy+ev.clientY-panning.sy;applyCamera();return}
+  if(state.tool==='connector'){previewConnectorHover(ev);return}
   if(groupTransform){applyGroupTransform(ev);return}
   if(labelDrag){
     const o=getObj(labelDrag.id);if(o?.label){
       if(Math.hypot(ev.clientX-labelDrag.startX,ev.clientY-labelDrag.startY)>2)labelDrag.moved=true;
       const p=screenToWorld(ev.clientX,ev.clientY),t=nearestTOnConnector(o,p),g=connectorGeom(o),pt=bezierPoint(g,t),tan=cubicTangent(g,t),len=Math.hypot(tan.x,tan.y)||1,n={x:-tan.y/len,y:tan.x/len};
-      o.label.t=t;o.label.offset=(p.x-pt.x)*n.x+(p.y-pt.y)*n.y;renderLabels();markDirty(false,true);
+      o.label.t=t;o.label.offset=(p.x-pt.x)*n.x+(p.y-pt.y)*n.y;markDirty();
     }return;
   }
   if(drawingGesture){
     if(!ev.isPrimary)return;
-    const p=screenToWorld(ev.clientX,ev.clientY),last=drawingGesture.points.at(-1),min=2/state.camera.scale;
-    if(dist(p,last)>=min){drawingGesture.points.push(p);markDirty()}return;
+    updateDrawingPoint(ev);return;
   }
   if(erasing){if(eraseAt(screenToWorld(ev.clientX,ev.clientY)))erasing.changed=true;return}
   if(marqueeStart){updateMarquee(ev.clientX,ev.clientY);return}
   if(dragging){applyDrag(ev.clientX,ev.clientY);return}
-  if(connectorDraft){connectorDraft.current=screenToWorld(ev.clientX,ev.clientY);markDirty();return}
-  if(endpointDrag){moveEndpointDrag(ev.clientX,ev.clientY);return}
+  if(resizing?.type==='text'){
+    if(ev.pointerId===resizing.pointerId)updateTextBoxResize(ev);
+    return;
+  }
   if(resizing){
     const o=getObj(resizing.id);if(!o)return;
     const p=screenToWorld(ev.clientX,ev.clientY),rad=-resizing.rot*Math.PI/180;
@@ -148,8 +161,8 @@ canvas.addEventListener('pointermove',ev=>{
     const dragged={x:lo.x+sx*w,y:lo.y+sy*h},lc={x:(dragged.x+lo.x)/2,y:(dragged.y+lo.y)/2};
     const center=rotateGlobal(lc,-rad);
     o.w=w;o.h=h;o.x=center.x-w/2;o.y=center.y-h/2;
-    const n=$(`.element[data-id="${o.id}"]`);if(n){n.style.left=o.x+'px';n.style.top=o.y+'px';n.style.width=o.w+'px';n.style.height=o.h+'px'}
-    markDirty();positionFloatingBar();return;
+    const n=renderedElements.get(o.id);if(n){n.style.left=o.x+'px';n.style.top=o.y+'px';n.style.width=o.w+'px';n.style.height=o.h+'px'}
+    markDirty();return;
   }
   if(rotating){
     const o=getObj(rotating.id);if(!o)return;
@@ -158,11 +171,12 @@ canvas.addEventListener('pointermove',ev=>{
     if(ev.shiftKey)deg=Math.round(deg/15)*15;
     if(Math.abs(deg)<1.5)deg=0;
     o.rot=deg;
-    const n=$(`.element[data-id="${o.id}"]`);if(n)n.style.transform=`rotate(${deg}deg)`;
-    markDirty();positionFloatingBar();return;
+    const n=renderedElements.get(o.id);if(n)n.style.transform=`rotate(${deg}deg)`;
+    markDirty();return;
   }
 });
 canvas.addEventListener('pointerup',ev=>{
+  if(connectorGesture){finishConnectorGesture(ev);return}
   if(shapeDrag){
     if(ev.pointerId===shapeDrag.pointerId){
       updateShapeDrag(ev.clientX,ev.clientY,ev.shiftKey);
@@ -173,12 +187,11 @@ canvas.addEventListener('pointerup',ev=>{
     return;
   }
   if(panning){panning=null;canvas.classList.remove('cursorGrabbing');scheduleSave();return}
-  if(groupTransform){groupTransform=null;commitGesture();renderAll();return}
+  if(groupTransform){groupTransform=null;commitGesture();markDirty();return}
   if(labelDrag){labelDrag=null;commitGesture();renderLabels();return}
   if(drawingGesture){
     if(!ev.isPrimary)return;
-    const p=screenToWorld(ev.clientX,ev.clientY);
-    if(dist(p,drawingGesture.points.at(-1))>=2/state.camera.scale)drawingGesture.points.push(p);
+    updateDrawingPoint(ev);
     if(drawingGesture.points.length>1){
       drawingGesture.points=rdp(drawingGesture.points,.75/state.camera.scale);
       commitGesture();
@@ -193,14 +206,29 @@ canvas.addEventListener('pointerup',ev=>{
   if(erasing){erasing=null;commitGesture();markDirty();return}
   if(marqueeStart){endMarquee();return}
   if(dragging){dragging=null;hideGuides();commitGesture();markDirty();return}
-  if(connectorDraft){completeConnectorDraft(ev.clientX,ev.clientY);return}
-  if(endpointDrag){endEndpointDrag(ev.clientX,ev.clientY);return}
+  if(resizing?.type==='text'){
+    if(ev.pointerId===resizing.pointerId){
+      updateTextBoxResize(ev);
+      resizing=null;
+      commitGesture();
+      renderAll();
+    }
+    return;
+  }
   if(resizing){resizing=null;commitGesture();renderElements();markDirty();updateSelectionUI();return}
   if(rotating){rotating=null;commitGesture();renderElements();markDirty();updateSelectionUI();return}
 });
 canvas.addEventListener('pointercancel',ev=>{
+  if(connectorGesture){
+    if(ev.pointerId===connectorGesture.pointerId)cancelConnectorGesture();
+    return;
+  }
   if(shapeDrag){
     if(ev.pointerId===shapeDrag.pointerId)cancelShapeDrag();
+    return;
+  }
+  if(resizing?.type==='text'){
+    if(ev.pointerId===resizing.pointerId)cancelTextBoxResize();
     return;
   }
   if(drawingGesture){
@@ -212,7 +240,9 @@ canvas.addEventListener('pointercancel',ev=>{
   marqueeStart=null;marquee.hidden=true;canvas.classList.remove('cursorGrabbing');hideGuides();cancelGesture();
 });
 canvas.addEventListener('lostpointercapture',ev=>{
+  if(connectorGesture?.pointerId===ev.pointerId)cancelConnectorGesture();
   if(ev.pointerId===shapeDrag?.pointerId)cancelShapeDrag();
+  if(resizing?.type==='text'&&ev.pointerId===resizing.pointerId)cancelTextBoxResize();
 });
 function shapeDragKey(ev){
   if(!shapeDrag)return false;
@@ -227,15 +257,18 @@ canvas.addEventListener('dblclick',ev=>{if(ev.target===canvas&&state.tool==='sel
 canvas.addEventListener('wheel',ev=>{
   ev.preventDefault();const c=state.camera,old=c.scale,next=clamp(old*Math.exp(-ev.deltaY*.00115),.1,4),wx=(ev.clientX-c.x)/old,wy=(ev.clientY-c.y)/old;
   c.scale=next;c.x=ev.clientX-wx*next;c.y=ev.clientY-wy*next;applyCamera();scheduleSave();
+  if(connectorGesture?.lastPointer)updateConnectorGesture(connectorGesture.lastPointer);
 },{passive:false});
 canvas.addEventListener('pointerenter',()=>{if(state.tool==='eraser'){updateEraserCursorSize();eraserCursor.classList.add('show')}});
-canvas.addEventListener('pointerleave',()=>{if(state.tool==='eraser'&&!erasing)eraserCursor.classList.remove('show')});
+canvas.addEventListener('pointerleave',()=>{
+  if(state.tool==='eraser'&&!erasing)eraserCursor.classList.remove('show');
+  if(state.tool==='connector'&&!connectorGesture)showConnectorAnchors();
+});
 
 /* Endpoint handle drag */
 endpointFrom.addEventListener('pointerdown',e=>startEndpointDrag('from',e));
 endpointTo.addEventListener('pointerdown',e=>startEndpointDrag('to',e));
-document.addEventListener('pointermove',e=>{if(endpointDrag)moveEndpointDrag(e.clientX,e.clientY);if(connectorDraft){connectorDraft.current=screenToWorld(e.clientX,e.clientY);markDirty()}});
-document.addEventListener('pointerup',e=>{if(endpointDrag)endEndpointDrag(e.clientX,e.clientY);else if(connectorDraft)completeConnectorDraft(e.clientX,e.clientY)});
+window.addEventListener('blur',cancelConnectorGesture);
 
 /* UI events */
 const penButton=$('[data-tool="pen"]'),penMenu=$('#penMenu'),penChoices=$$('[data-pen-mode]');
@@ -270,4 +303,4 @@ document.addEventListener('click',event=>{
 });
 $$('.tool[data-tool]:not([data-tool="pen"])').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
 $('#undoBtn').onclick=undo;$('#redoBtn').onclick=redo;$('#zoomOut').onclick=()=>zoomCenter(.86);$('#zoomIn').onclick=()=>zoomCenter(1.16);$('#fitBtn').onclick=fitContent;
-$('#miniBtn').onclick=()=>miniWrap.classList.toggle('show');
+$('#miniBtn').onclick=()=>{hideBoardBookmarks();miniWrap.classList.toggle('show');renderMini()};

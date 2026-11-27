@@ -105,11 +105,13 @@ function writeBoardAtomic(filePath, board) {
   }
 }
 
-function readBoard(filePath) {
-  const raw = fs.readFileSync(filePath, 'utf8');
+function parseBoard(raw) {
   const data = JSON.parse(raw);
   if (data.format !== 'treeboard') throw new Error('不是有效的 .treeboard 文件');
   return data;
+}
+function readBoard(filePath) {
+  return parseBoard(fs.readFileSync(filePath, 'utf8'));
 }
 
 function addRecent(filePath) {
@@ -134,7 +136,9 @@ function recentMetadata(filePath) {
     return {
       path: filePath,
       title: data.title || path.basename(filePath, '.treeboard'),
-      preview: data.preview || null,
+      hasContent: Array.isArray(data.objects) && data.objects.length > 0,
+      preview: data.previewKind === 'content' && typeof data.preview === 'string' &&
+        /^data:image\/(?:png|webp);base64,/i.test(data.preview) ? data.preview : null,
       updatedAt: data.updatedAt || stat.mtime.toISOString()
     };
   } catch {
@@ -243,6 +247,21 @@ ipcMain.handle('home:get-data', () => {
     saveSettings(settings);
   }
   return { settings, recent };
+});
+
+ipcMain.handle('recent:get-preview-source', async (_event, filePath) => {
+  if (typeof filePath !== 'string' || !filePath) return null;
+  try {
+    const normalized = path.resolve(filePath);
+    if (!loadSettings().recentFiles.some(entry => typeof entry === 'string' && path.resolve(entry) === normalized)) return null;
+    const board = parseBoard(await fs.promises.readFile(normalized, 'utf8'));
+    return {
+      objects: Array.isArray(board.objects) ? board.objects : [],
+      assets: board.assets || {}
+    };
+  } catch {
+    return null;
+  }
 });
 
 ipcMain.handle('board:new', async () => {
