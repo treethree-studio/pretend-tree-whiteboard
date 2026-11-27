@@ -1,13 +1,15 @@
 function buildFloatingBar(){
-  floatingBar.innerHTML='';floatingBar.classList.remove('show');closeTransientMenus(false);
+  closeTransientMenus();
+  floatingBar.innerHTML='';floatingBar.classList.remove('show');
   const objs=selectedObjs();if(!objs.length)return;
 
   if(objs.length>1){
     floatingBar.appendChild(arrangeButton('multi'));
 
-    const gid=sameGroupSelection();
-    const gb=actionButton(gid?'取消组合':'组合',gid?'ungroup':'group',gid?ungroupSelection:groupSelection,gid?'取消组合':'组合');
-    floatingBar.appendChild(gb);
+    const grouping=groupingAction(objs);
+    const groupButton=actionButton(grouping.label,grouping.icon,grouping.run,grouping.disabled?'请先解锁所选对象':grouping.label);
+    groupButton.disabled=grouping.disabled;
+    floatingBar.appendChild(groupButton);
 
     floatingBar.appendChild(duplicateButton());
     floatingBar.appendChild(moreButton());
@@ -89,11 +91,7 @@ function buildFloatingBar(){
 function setTextFontSize(o,value){
   const size=clamp(Math.round(Number(value)||28),8,144);
   if(size===(o.fontSize||28))return;
-  discrete(()=>{
-    o.fontSize=size;
-    // 字号变大时同步保证文本框高度足够，避免文字跑出选框。
-    o.h=Math.max(36,Math.max(o.h||36,Math.ceil(size*1.55)));
-  });
+  discrete(()=>{o.fontSize=size});
   renderElements();updateSelectionUI();markDirty();
 }
 function cycleWidth(o,arr){
@@ -112,31 +110,85 @@ function positionFloatingBar(){
   left=clamp(left,8,innerWidth-r.width-8);top=clamp(top,8,innerHeight-r.height-8);
   floatingBar.style.left=left+'px';floatingBar.style.top=top+'px';
 }
-function openPalette(anchor,apply,allowTransparent=false){
-  paletteApply=apply;paletteAllowTransparent=allowTransparent;colorPopover.innerHTML='';
+function openPalette(anchor,property,currentColor,allowTransparent=false){
+  const [object]=selectedObjs();
+  if(!object)return;
+  closeTransientMenus();
+  const swatch=anchor.querySelector('.currentColor');
+  const session={object,property,swatch,originalSwatch:swatch.style.background,previewColor:null};
+  paletteSession=session;
+  colorPopover.innerHTML='';
   const section=(label,colors)=>{
     const row=document.createElement('div');row.className='paletteRow';
     const l=document.createElement('span');l.className='paletteLabel';l.textContent=label;row.appendChild(l);
-    colors.forEach(c=>{const b=document.createElement('button');b.className='paletteChip';b.style.background=c;b.onclick=()=>choosePaletteColor(c);row.appendChild(b)});
+    colors.forEach(c=>{const b=document.createElement('button');b.className='paletteChip';b.style.background=c;b.onclick=()=>choosePaletteColor(session,c);row.appendChild(b)});
     colorPopover.appendChild(row);
   };
   if(allowTransparent){
     const row=document.createElement('div');row.className='paletteRow';const l=document.createElement('span');l.className='paletteLabel';l.textContent='填充';row.appendChild(l);
-    const t=document.createElement('button');t.className='paletteChip transparent';t.title='透明';t.onclick=()=>choosePaletteColor('transparent');row.appendChild(t);colorPopover.appendChild(row);
+    const t=document.createElement('button');t.className='paletteChip transparent';t.title='透明';t.onclick=()=>choosePaletteColor(session,'transparent');row.appendChild(t);colorPopover.appendChild(row);
   }
   section('柔和',PALETTES.soft);section('经典',PALETTES.classic);section('极简',PALETTES.mono);
   if(recentColors.length)section('最近',recentColors);
   const div=document.createElement('div');div.className='paletteDivider';colorPopover.appendChild(div);
   const custom=document.createElement('div');custom.className='customColor';
-  custom.innerHTML='<input type="color" value="#7267ff"><input type="text" placeholder="#7267FF" maxlength="7">';
+  custom.innerHTML='<input type="color" aria-label="自定义颜色"><input type="text" aria-label="HEX 颜色" placeholder="#7267FF" maxlength="7">';
   const ci=custom.querySelector('input[type=color]'),ti=custom.querySelector('input[type=text]');
-  ci.oninput=()=>{ti.value=ci.value.toUpperCase()};ci.onchange=()=>choosePaletteColor(ci.value);
-  ti.onkeydown=e=>{if(e.key==='Enter'){const v=normalizeHex(ti.value);if(v)choosePaletteColor(v);else showToast('请输入有效 HEX 颜色')}};
+  const currentHex=normalizeHex(currentColor);
+  ci.value=currentHex||'#7267ff';
+  ti.value=currentHex||'';
+  const initialPickerValue=ci.value;
+  ci.oninput=()=>{
+    if(paletteSession!==session)return;
+    const changed=ci.value!==initialPickerValue;
+    ti.value=changed?ci.value.toUpperCase():(currentHex||'');
+    session.previewColor=changed?ci.value:null;
+    renderPalettePreview(session);
+  };
+  ci.onchange=()=>{
+    if(ci.value===initialPickerValue){
+      if(session.previewColor)ci.oninput();
+      return;
+    }
+    choosePaletteColor(session,ci.value);
+  };
+  ti.onkeydown=e=>{if(e.key==='Enter'){const v=normalizeHex(ti.value);if(v)choosePaletteColor(session,v);else showToast('请输入有效 HEX 颜色')}};
   colorPopover.appendChild(custom);
   colorPopover.classList.add('show');placePopover(anchor,colorPopover);
 }
 function normalizeHex(v){v=(v||'').trim();if(/^#[0-9a-f]{6}$/i.test(v))return v.toUpperCase();if(/^[0-9a-f]{6}$/i.test(v))return('#'+v).toUpperCase();return null}
-function choosePaletteColor(c){if(paletteApply)paletteApply(c);rememberColor(c);colorPopover.classList.remove('show')}
+function displayedPaletteColor(object,property,fallback){
+  if(paletteSession?.object===object&&paletteSession.property===property&&paletteSession.previewColor){
+    return paletteSession.previewColor;
+  }
+  return object[property]||fallback;
+}
+function renderPalettePreview(session){
+  const {object,swatch,originalSwatch}=session;
+  swatch.style.background=(paletteSession===session&&session.previewColor)||originalSwatch;
+  if(isVector(object)){
+    renderVectors();
+  }else{
+    const node=elementsRoot.querySelector(`[data-id="${CSS.escape(object.id)}"]`);
+    if(node)renderElementColors(node,object);
+  }
+}
+function closeColorPalette(){
+  const session=paletteSession;
+  paletteSession=null;
+  colorPopover.classList.remove('show');
+  if(session?.previewColor)renderPalettePreview(session);
+}
+function choosePaletteColor(session,color){
+  if(paletteSession!==session)return;
+  const {object,property}=session;
+  if(getObj(object.id)!==object){closeColorPalette();return}
+  session.previewColor=null;
+  closeColorPalette();
+  discrete(()=>{object[property]=color});
+  rememberColor(color);
+  renderAll();
+}
 
 function arrangeSvg(name){
   const map={
@@ -203,13 +255,13 @@ function openArrangePopover(anchor,mode='multi'){
   const h=document.createElement('div');h.className='popTitle';h.textContent='层级';sec.appendChild(h);
   const list=document.createElement('div');list.className='layerList';
   [
-    ['置于顶层','front',()=>bringSelection('front')],
-    ['上移一层','up',()=>stepLayer(1)],
-    ['下移一层','down',()=>stepLayer(-1)],
-    ['置于底层','back',()=>bringSelection('back')]
-  ].forEach(([label,icon,fn])=>{
-    const b=document.createElement('button');b.innerHTML=arrangeSvg(icon)+`<span>${label}</span>`;
-    b.onclick=()=>{fn();arrangePopover.classList.remove('show')};list.appendChild(b);
+    ['置于顶层','front'],
+    ['上移一层','up'],
+    ['下移一层','down'],
+    ['置于底层','back']
+  ].forEach(([label,action])=>{
+    const b=document.createElement('button');b.innerHTML=arrangeSvg(action)+`<span>${label}</span>`;
+    b.onclick=()=>{moveSelectionLayer(action);arrangePopover.classList.remove('show')};list.appendChild(b);
   });
   sec.appendChild(list);arrangePopover.appendChild(sec);
 
@@ -233,57 +285,128 @@ function openTextAlignPopover(anchor,o){
   textAlignPopover.classList.add('show');placePopover(anchor,textAlignPopover);
 }
 
-function applyColorToSelection(prop,c){
-  discrete(()=>selectedObjs().forEach(o=>{if(prop in o||['fill','color','stroke'].includes(prop))o[prop]=c}));
-  renderAll();
-}
 function placePopover(anchor,pop){
   const a=anchor.getBoundingClientRect(),r=pop.getBoundingClientRect();
   let left=a.left,top=a.bottom+7;if(left+r.width>innerWidth-8)left=innerWidth-r.width-8;if(top+r.height>innerHeight-8)top=a.top-r.height-7;
   pop.style.left=Math.max(8,left)+'px';pop.style.top=Math.max(8,top)+'px';
 }
-function openObjectMenu(anchor){
-  menuTargetIds=[...state.selection];objectMenu.innerHTML='';
+function groupingAction(objects){
+  if(objects.length<2)return null;
+  if(sameGroupSelection(objects))return {label:'取消组合',icon:'ungroup',run:ungroupSelection,disabled:false};
+  return {label:'组合',icon:'group',run:groupSelection,disabled:groupingTargets(objects).some(o=>o.locked)};
+}
+const lowerLayerMarker=$('#lowerLayerMarker');
+function lowerObjectsAt(point){
+  const ids=new Set();
+  const objects=[];
+  for(const node of document.elementsFromPoint(point.x,point.y)){
+    const id=node.closest('.element,.vectorObject,.connectorLabel')?.dataset.id;
+    if(!id||ids.has(id))continue;
+    const object=getObj(id);
+    if(object){ids.add(id);objects.push(object)}
+  }
+  return objects.slice(1);
+}
+function showLowerLayerMarker(object){
+  const b=objectBounds(object),a=worldToScreen(b.x,b.y),scale=state.camera.scale;
+  Object.assign(lowerLayerMarker.style,{left:(a.x-4)+'px',top:(a.y-4)+'px',width:(b.w*scale+8)+'px',height:(b.h*scale+8)+'px'});
+  lowerLayerMarker.hidden=false;
+}
+function closeObjectMenu(){
+  objectMenu.classList.remove('show');
+  lowerLayerMarker.hidden=true;
+}
+function positionObjectMenu(anchor,point){
+  objectMenu.classList.add('show');
+  if(point){
+    const {width,height}=objectMenu.getBoundingClientRect();
+    objectMenu.style.left=clamp(point.x,8,Math.max(8,innerWidth-width-8))+'px';
+    objectMenu.style.top=clamp(point.y,8,Math.max(8,innerHeight-height-8))+'px';
+  }else placePopover(anchor,objectMenu);
+}
+function openLowerObjectMenu(point,objects){
+  const typeLabels={sticky:'便签',text:'文本框',image:'图片',rect:'矩形',circle:'圆形',connector:'连接线',drawing:'笔迹'};
+  objectMenu.innerHTML='';
+  const back=document.createElement('button');
+  back.type='button';back.textContent='‹ 返回对象菜单';back.setAttribute('role','menuitem');
+  back.onclick=()=>openObjectMenu(null,point,objects);
+  objectMenu.appendChild(back);
+  objects.forEach((object,index)=>{
+    const button=document.createElement('button'),label=document.createElement('span');
+    const detail=String(object.text??object.label?.text??'').trim().replace(/\s+/g,' ');
+    label.textContent=detail?typeLabels[object.type]+' · '+detail:typeLabels[object.type]+' · 下层 '+(index+1);
+    button.className='lowerObjectRow';button.type='button';button.title=label.textContent;
+    button.setAttribute('role','menuitem');
+    if(object.type==='image'){
+      const thumb=document.createElement('img');thumb.alt='';
+      button.appendChild(thumb);
+      getAssetUrl(object.assetId).then(url=>{if(url&&button.isConnected)thumb.src=url}).catch(()=>{});
+    }
+    button.appendChild(label);
+    button.onpointerenter=button.onfocus=()=>showLowerLayerMarker(object);
+    button.onpointerleave=button.onblur=()=>{lowerLayerMarker.hidden=true};
+    button.onclick=()=>{closeObjectMenu();setSelection([object.id])};
+    objectMenu.appendChild(button);
+  });
+  positionObjectMenu(null,point);
+  objectMenu.querySelector('.lowerObjectRow')?.focus({preventScroll:true});
+}
+function openObjectMenu(anchor,point,lowerObjects=[]){
+  const objects=selectedObjs();
+  if(!objects.length)return;
+  closeTransientMenus();
+  hidePenMenu();hideExportMenu();
+  objectMenu.innerHTML='';
   const addHeading=label=>{const h=document.createElement('div');h.className='menuHeading';h.textContent=label;objectMenu.appendChild(h)};
   const addDivider=()=>{const d=document.createElement('div');d.className='menuDivider';objectMenu.appendChild(d)};
-  const add=(label,fn,danger=false)=>{const b=document.createElement('button');b.textContent=label;if(danger)b.className='danger';b.onclick=()=>{fn();objectMenu.classList.remove('show')};objectMenu.appendChild(b)};
+  const add=(label,run,{danger=false,disabled=false}={})=>{
+    const button=document.createElement('button');
+    button.textContent=label;button.disabled=disabled;
+    button.setAttribute('role','menuitem');
+    if(danger)button.className='danger';
+    if(disabled)button.title='请先解锁所选对象';
+    button.onclick=()=>{closeObjectMenu();run()};
+    objectMenu.appendChild(button);
+  };
 
-  const objs=selectedObjs(),single=objs.length===1?objs[0]:null;
-
-  if(single&&single.type==='image'){
-    addHeading('图片');
-    add(single.imageStyle==='card'?'使用透明原图':'使用白底卡片',()=>toggleImageStyle(single));
-    addDivider();
-  }
-  if(single&&single.type==='connector'){
-    addHeading('连接线');
-    if(single.label)add('删除文字标记',()=>{discrete(()=>delete single.label);renderAll()});
-    addDivider();
-  }
-
+  const single=objects.length===1?objects[0]:null;
+  const grouping=groupingAction(objects);
   addHeading('对象');
+  if(lowerObjects.length)add('选择下层对象 ›',()=>openLowerObjectMenu(point,lowerObjects));
+  if(grouping)add(grouping.label,grouping.run,{disabled:grouping.disabled});
+  const lockedCount=objects.filter(o=>o.locked).length;
+  if(lockedCount<objects.length)add(lockedCount?'锁定全部':'锁定',()=>setLocked(true));
+  if(lockedCount)add(lockedCount===objects.length?'解锁':'解锁全部',()=>setLocked(false));
   add('复制',duplicateSelection);
-  const allLocked=objs.length&&objs.every(o=>o.locked);
-  add(allLocked?'解锁':'锁定',()=>setLocked(!allLocked));
-
-  if(single&&['sticky','image','rect','circle'].includes(single.type)){
+  if(single&&!single.locked&&['sticky','image','rect','circle'].includes(single.type)){
     add('向左旋转 5°',()=>rotateSelection(-5));
     add('向右旋转 5°',()=>rotateSelection(5));
   }
-
+  if(single&&single.type==='image'){
+    addDivider();
+    addHeading('图片');
+    add(single.imageStyle==='card'?'使用透明原图':'使用白底卡片',()=>toggleImageStyle(single));
+  }
+  if(single?.type==='connector'&&single.label){
+    addDivider();
+    addHeading('连接线');
+    add('删除文字标记',()=>{discrete(()=>delete single.label);renderAll()});
+  }
   addDivider();
-  add('删除',deleteSelection,true);
+  add('删除',deleteSelection,{danger:true});
 
-  objectMenu.classList.add('show');placePopover(anchor,objectMenu);
+  positionObjectMenu(anchor,point);
+  objectMenu.querySelector('button:not(:disabled)')?.focus({preventScroll:true});
 }
 function closeTransientMenus(clearPalette=true){
-  objectMenu.classList.remove('show');
+  closeObjectMenu();
   arrangePopover.classList.remove('show');
   textAlignPopover.classList.remove('show');
-  if(clearPalette)colorPopover.classList.remove('show');
+  if(clearPalette)closeColorPalette();
 }
 function setLocked(v){
-  discrete(()=>selectedObjs().forEach(o=>o.locked=v));renderAll();showToast(v?'已锁定':'已解锁');
+  const changed=selectedObjs().filter(o=>Boolean(o.locked)!==v);
+  if(!changed.length)return;
+  discrete(()=>changed.forEach(o=>o.locked=v));renderAll();showToast(v?'已锁定':'已解锁');
 }
 function toggleImageStyle(o){discrete(()=>o.imageStyle=o.imageStyle==='card'?'raw':'card');renderAll()}
-function stepLayer(dir){discrete(()=>selectedObjs().forEach(o=>o.z=(o.z||1)+dir));renderAll()}

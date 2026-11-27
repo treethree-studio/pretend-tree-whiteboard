@@ -1,7 +1,7 @@
 /* Floating compact toolbar */
 function colorButton(color,prop,allowTransparent=false,label='颜色'){
   const b=document.createElement('button');b.title=label;b.innerHTML=`<span class="currentColor" style="background:${color==='transparent'?'linear-gradient(135deg,#fff 0 45%,#e65c5c 46% 53%,#fff 54% 100%)':color}"></span>`;
-  b.onclick=e=>{e.stopPropagation();openPalette(b,c=>applyColorToSelection(prop,c),allowTransparent)};return b;
+  b.onclick=e=>{e.stopPropagation();openPalette(b,prop,color,allowTransparent)};return b;
 }
 function moreButton(){
   const b=document.createElement('button');b.innerHTML='<span class="moreDots">…</span>';b.title='更多';

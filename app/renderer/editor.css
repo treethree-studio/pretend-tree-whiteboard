@@ -20,10 +20,12 @@ button{border:0;background:none;color:inherit}
   background-size:34px 34px;background-position:0 0;touch-action:none;
 }
 #world{position:absolute;left:0;top:0;width:1px;height:1px;transform-origin:0 0;will-change:transform}
-#vectorLayer,#highlightLayer{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
-#elements{position:absolute;left:0;top:0;isolation:isolate}
-#highlightLayer{z-index:2}
-.selectMode .highlightStroke{pointer-events:stroke;cursor:grab}
+#objectLayers{position:absolute;left:0;top:0;z-index:0}
+#elements,#vectors,#labels{display:contents}
+.vectorObject,#draftLayer{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
+#draftLayer{z-index:2}
+.selectMode .vectorStroke{pointer-events:stroke;cursor:grab}
+.selectMode .vectorArrow{pointer-events:fill;cursor:grab}
 #searchMarker{position:absolute;z-index:3;border:2px solid var(--accent);border-radius:6px;pointer-events:none}
 .ui{
   position:absolute;background:var(--panel);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
@@ -90,6 +92,17 @@ button{border:0;background:none;color:inherit}
 #zoomLabel{width:50px;text-align:center;font-size:12px;font-weight:620;color:#555}
 #miniWrap{right:22px;bottom:70px;width:174px;border-radius:14px;padding:9px;z-index:88;display:none}
 #miniWrap.show{display:block}
+#boardBookmarks{right:22px;bottom:70px;width:300px;max-width:calc(100% - 44px);padding:12px;border-radius:14px;z-index:246}
+#boardBookmarks h2{margin:0 0 9px;font-size:14px}
+#bookmarkForm{display:flex;gap:5px}
+#bookmarkName{flex:1;min-width:0;padding:6px 8px;border:1px solid #e6e6e3;border-radius:7px;font:inherit;font-size:12px}
+#boardBookmarks button{padding:5px 7px;border-radius:7px;cursor:pointer;font-size:12px}
+#boardBookmarks button:hover{background:var(--accentSoft)}
+#bookmarkSave{background:var(--accentSoft);color:#5148c0}
+#bookmarkEmpty{margin:10px 2px 0;color:#737373;font-size:12px}
+#bookmarkList{list-style:none;margin:8px 0 0;padding:0;max-height:min(285px,45vh);overflow:auto}
+#bookmarkList li{display:flex;align-items:center;gap:4px;padding:3px 0}
+#bookmarkList .bookmarkJump{min-width:0;flex:1;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;text-align:left}
 #minimap{width:156px;height:92px;border-radius:9px;background:#fdfdfc;display:block;cursor:pointer}
 
 .element{position:absolute;user-select:none;touch-action:none;transform-origin:center center}
@@ -104,6 +117,9 @@ button{border:0;background:none;color:inherit}
 .resizeHandle.ne{right:-9px;top:-9px;cursor:nesw-resize}
 .resizeHandle.se{right:-9px;bottom:-9px;cursor:nwse-resize}
 .resizeHandle.sw{left:-9px;bottom:-9px;cursor:nesw-resize}
+.resizeHandle.w,.resizeHandle.e{top:50%;transform:translateY(-50%);cursor:ew-resize}
+.resizeHandle.w{left:-9px}
+.resizeHandle.e{right:-9px}
 .rotationHandle{
   position:absolute;left:50%;top:-38px;width:12px;height:12px;border-radius:50%;background:#fff;border:1.7px solid var(--accent);
   transform:translateX(-50%);display:none;z-index:31;cursor:grab;box-shadow:0 2px 8px rgba(0,0,0,.10)
@@ -121,9 +137,10 @@ button{border:0;background:none;color:inherit}
   content:"";position:absolute;inset:0;border-radius:2px;pointer-events:none;opacity:.16;
   background:linear-gradient(115deg,rgba(255,255,255,.55),transparent 34%),linear-gradient(180deg,transparent 82%,rgba(0,0,0,.03))
 }
-.textEl{min-width:80px;min-height:36px;padding:4px 6px;white-space:pre-wrap;line-height:1.35}
-.editableText{position:relative;min-width:0;width:100%;min-height:1em;overflow-wrap:anywhere}
 .editableText[contenteditable="plaintext-only"]{outline:none;user-select:text;cursor:text;caret-color:currentColor}
+::highlight(treeboard-mark){background-color:rgba(255,222,38,.58)}
+#textMarkButton{z-index:248;border-radius:9px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap}
+#textMarkButton:hover{background:#fff2a7}
 .shape{border-style:solid}
 .shape.circle{border-radius:50%}
 .shapePreview{position:absolute;pointer-events:none;border:2px solid var(--accent);background:rgba(114,103,255,.075);z-index:1}
@@ -141,14 +158,18 @@ button{border:0;background:none;color:inherit}
 
 .anchor{
   position:absolute;width:10px;height:10px;border-radius:50%;background:#fff;border:1.4px solid var(--accent);
-  box-shadow:0 2px 6px rgba(0,0,0,.08);opacity:0;pointer-events:none;z-index:12;transition:.1s;
+  box-shadow:0 2px 6px rgba(0,0,0,.08);opacity:0;pointer-events:none;z-index:12;
+  transform:translate(-50%,-50%) scale(var(--anchor-scale,1));transition:opacity .1s,background-color .1s;
 }
-.anchor.n{left:50%;top:-7px;transform:translateX(-50%)}
-.anchor.e{right:-7px;top:50%;transform:translateY(-50%)}
-.anchor.s{left:50%;bottom:-7px;transform:translateX(-50%)}
-.anchor.w{left:-7px;top:50%;transform:translateY(-50%)}
-#app.connectorMode .element:hover .anchor,
-.element.showAnchors .anchor{opacity:1;pointer-events:auto}
+.anchor.n{left:50%;top:calc(0px - var(--anchor-border,0px))}
+.anchor.e{left:calc(100% + var(--anchor-border,0px));top:50%}
+.anchor.s{left:50%;top:calc(100% + var(--anchor-border,0px))}
+.anchor.w{left:calc(0px - var(--anchor-border,0px));top:50%}
+#app.connectorMode:not(.connectorDragging) .element:hover .anchor,
+#app.connectorMode .element.showAnchors .anchor{opacity:1}
+.element.connectorTarget{outline:calc(2px * var(--anchor-scale,1)) solid var(--accent)}
+.anchor.connectorTargetAnchor{background:var(--accent);border-color:#fff}
+#draftConnector.snapped{stroke-dasharray:none}
 
 #marquee{position:absolute;border:1px solid rgba(114,103,255,.72);background:rgba(114,103,255,.075);pointer-events:none;z-index:70}
 .guide{position:absolute;z-index:72;pointer-events:none;background:rgba(114,103,255,.62);display:none}
@@ -162,7 +183,7 @@ button{border:0;background:none;color:inherit}
 #floatingBar button{
   height:30px;min-width:30px;border-radius:8px;display:grid;place-items:center;cursor:pointer;padding:0 8px;font-size:12px;
 }
-#floatingBar button:hover{background:#f3f3f1}
+#floatingBar button:hover:not(:disabled){background:#f3f3f1}
 .currentColor{width:19px;height:19px;border-radius:50%;border:1px solid rgba(0,0,0,.12)}
 .miniSep{width:1px;height:20px;background:#e8e8e5;margin:0 2px}
 .moreDots{font-size:18px;letter-spacing:1px;padding-bottom:5px}
@@ -203,13 +224,19 @@ button{border:0;background:none;color:inherit}
 .customColor input[type=text]:focus{border-color:rgba(114,103,255,.45)}
 
 #objectMenu{
-  z-index:245;width:184px;border-radius:12px;padding:7px;display:none;
+  z-index:245;width:184px;max-height:calc(100vh - 16px);overflow:auto;border-radius:12px;padding:7px;display:none;
 }
 #objectMenu.show{display:block}
 .menuHeading{font-size:11px;color:#969693;padding:5px 8px 4px}
 .menuDivider{height:1px;background:#eeeeeb;margin:5px 4px}
 #objectMenu button{width:100%;height:32px;border-radius:8px;text-align:left;padding:0 9px;cursor:pointer;font-size:12px}
-#objectMenu button:hover{background:#f3f3f1}
+#objectMenu button:hover:not(:disabled){background:#f3f3f1}
+#objectMenu .lowerObjectRow{display:flex;align-items:center;gap:7px;height:34px}
+.lowerObjectRow span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lowerObjectRow img{width:23px;height:23px;border-radius:4px;object-fit:contain;background:#f0f0ee;flex:none}
+#lowerLayerMarker{position:absolute;z-index:174;pointer-events:none;border:2px dashed var(--accent);border-radius:6px;background:rgba(114,103,255,.09)}
+#objectMenu button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+#floatingBar button:disabled,#objectMenu button:disabled{color:#969693;cursor:default}
 #objectMenu .danger:hover{background:#fff0f0;color:#c74646}
 
 #arrangePopover,#textAlignPopover{
@@ -238,9 +265,11 @@ button{border:0;background:none;color:inherit}
 
 .endpointHandle{
   position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;border:1.6px solid var(--accent);
-  box-shadow:0 2px 7px rgba(0,0,0,.08);z-index:190;display:none;transform:translate(-50%,-50%);cursor:crosshair;
+  box-shadow:0 2px 7px rgba(0,0,0,.08);z-index:190;display:none;transform:translate(-50%,-50%);cursor:crosshair;touch-action:none;
 }
 .endpointHandle.show{display:block}
+.endpointHandle::before{content:"";position:absolute;inset:-6px;border-radius:50%}
+.connectorDragging .endpointHandle{pointer-events:none}
 
 #groupBox{
   position:absolute;z-index:175;border:1.3px solid rgba(114,103,255,.76);pointer-events:none;display:none;
@@ -261,12 +290,12 @@ button{border:0;background:none;color:inherit}
 #groupRotate::after{
   content:"";position:absolute;left:50%;top:11px;width:1px;height:22px;background:rgba(114,103,255,.58);transform:translateX(-50%)
 }
-#labels{position:absolute;left:0;top:0;z-index:1;pointer-events:none}
 .connectorLabel{
-  position:absolute;z-index:90;transform:translate(-50%,-50%);padding:4px 7px;border-radius:7px;
+  position:absolute;transform:translate(-50%,-50%);padding:4px 7px;border-radius:7px;
   background:rgba(251,251,250,.95);border:1px solid rgba(0,0,0,.045);box-shadow:0 3px 10px rgba(0,0,0,.05);
-  font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;pointer-events:auto;cursor:grab;user-select:none;
+  font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;pointer-events:none;cursor:grab;user-select:none;
 }
+.selectMode .connectorLabel{pointer-events:auto}
 .connectorLabel.selected{outline:1.5px solid rgba(114,103,255,.72)}
 .connectorLabel.editing{cursor:text;user-select:text;outline:1.5px solid rgba(114,103,255,.72)}
 

@@ -23,56 +23,163 @@ function eraseAt(worldP){
 }
 
 /* Connectors */
-function anchorAtScreen(x,y){
-  const el=document.elementFromPoint(x,y)?.closest('.anchor');if(!el)return null;
-  const parent=el.closest('.element');if(!parent)return null;return{id:parent.dataset.id,anchor:el.dataset.anchor}
+const CONNECTOR_SNAP_RADIUS=20;
+const CONNECTOR_RELEASE_RADIUS=26;
+const CONNECTOR_DRAG_THRESHOLD=6;
+const CONNECTOR_ANCHORS=['n','e','s','w'];
+function connectorCenter(object){
+  return {x:object.x+object.w/2,y:object.y+object.h/2};
 }
-function nearestAnchorOnObject(o,p){
-  if(!o||!linkable(o))return null;
-  const options=['n','e','s','w'].map(a=>({a,p:endpointPoint({id:o.id,anchor:a},p)}));
-  options.sort((u,v)=>dist(u.p,p)-dist(v.p,p));return{id:o.id,anchor:options[0].a};
+function connectorFacingAnchor(object,point){
+  const center=connectorCenter(object);
+  const local=object.rot?rotatePoint(point,center,-object.rot):point;
+  const dx=(local.x-center.x)/Math.max(object.w,1),dy=(local.y-center.y)/Math.max(object.h,1);
+  if(Math.abs(dx)>Math.abs(dy))return dx>=0?'e':'w';
+  return dy>=0?'s':'n';
 }
-function completeConnectorDraft(x,y){
-  if(!connectorDraft)return;
-  if(Math.hypot(x-connectorDraft.startX,y-connectorDraft.startY)<7){
-    connectorDraft=null;cancelGesture();markDirty();return;
+function connectorAnchorNear(object,point){
+  const scale=state.camera.scale;
+  let closest=clamp(Math.min(object.w,object.h)*scale*.3,5,12);
+  let anchor=null;
+  for(const side of CONNECTOR_ANCHORS){
+    const distance=dist(point,endpointPoint({id:object.id,anchor:side}))*scale;
+    if(distance<=closest){anchor=side;closest=distance}
   }
-  const p=screenToWorld(x,y),targetAnchor=anchorAtScreen(x,y);
-  let to=targetAnchor;
-  if(!to){
-    const targetNode=document.elementFromPoint(x,y)?.closest('.element');
-    if(targetNode)to=nearestAnchorOnObject(getObj(targetNode.dataset.id),p);
+  return anchor;
+}
+function connectorObjectDistance(object,point){
+  const center=connectorCenter(object);
+  const p=object.rot?rotatePoint(point,center,-object.rot):point;
+  const dx=Math.abs(p.x-center.x),dy=Math.abs(p.y-center.y);
+  const halfWidth=object.w/2,halfHeight=object.h/2;
+  if(object.type==='circle'){
+    const radius=Math.hypot(dx/Math.max(halfWidth,.5),dy/Math.max(halfHeight,.5));
+    return radius<=1?0:Math.hypot(dx,dy)*(1-1/radius);
   }
-  if(!to)to={x:p.x,y:p.y};
-  const from=connectorDraft.from;
-  const valid=!(from.id&&to.id&&from.id===to.id&&from.anchor===to.anchor);
-  if(valid){
-    state.objects.push({id:uid('c'),type:'connector',from:deep(from),to:deep(to),color:DEFAULTS.line,width:3,arrow:'end',z:zMax()+1});
-    commitGesture();
-  }else cancelGesture();
-  connectorDraft=null;markDirty();renderAll();
+  return Math.hypot(Math.max(0,dx-halfWidth),Math.max(0,dy-halfHeight));
 }
-function startEndpointDrag(side,ev){
-  const o=getObj(state.selection[0]);if(!o||o.type!=='connector')return;
-  ev.preventDefault();ev.stopPropagation();beginGesture();
-  endpointDrag={id:o.id,side,startX:ev.clientX,startY:ev.clientY,original:deep(o[side]),moved:false};
-  app.classList.add('connectorMode');
-}
-function moveEndpointDrag(x,y){
-  if(!endpointDrag)return;const o=getObj(endpointDrag.id);if(!o)return;
-  if(Math.hypot(x-endpointDrag.startX,y-endpointDrag.startY)>2)endpointDrag.moved=true;
-  if(endpointDrag.moved){o[endpointDrag.side]=screenToWorld(x,y);markDirty()}
-}
-function endEndpointDrag(x,y){
-  if(!endpointDrag)return;const d=endpointDrag,o=getObj(d.id);if(!o)return;
-  if(!d.moved){
-    o[d.side]=deep(d.original);endpointDrag=null;cancelGesture();
-    if(state.tool!=='connector')app.classList.remove('connectorMode');markDirty();return;
+function connectorObjectAt(x,y,point,previousId){
+  const hit=document.elementFromPoint(x,y);
+  if(!canvas.contains(hit))return null;
+  const direct=getObj(hit.closest('.element')?.dataset.id);
+  if(linkable(direct))return direct;
+  const scale=state.camera.scale,previous=previousId&&getObj(previousId);
+  if(linkable(previous)&&connectorObjectDistance(previous,point)*scale<=CONNECTOR_RELEASE_RADIUS)return previous;
+  let best=null,bestDistance=CONNECTOR_SNAP_RADIUS;
+  for(let i=state.objects.length-1;i>=0;i--){
+    const object=state.objects[i];
+    if(!linkable(object))continue;
+    const distance=connectorObjectDistance(object,point)*scale;
+    if(distance<bestDistance||(distance===bestDistance&&(!best||layerOf(object)>layerOf(best)))){
+      best=object;bestDistance=distance;
+    }
   }
-  const p=screenToWorld(x,y),a=anchorAtScreen(x,y);let ep=a;
-  if(!ep){const n=document.elementFromPoint(x,y)?.closest('.element');if(n)ep=nearestAnchorOnObject(getObj(n.dataset.id),p)}
-  o[d.side]=ep||{x:p.x,y:p.y};endpointDrag=null;commitGesture();
-  if(state.tool!=='connector')app.classList.remove('connectorMode');markDirty();renderAll();
+  return best;
+}
+function showConnectorAnchors(object,anchor){
+  const node=object&&elementsRoot.querySelector(`.element[data-id="${CSS.escape(object.id)}"]`);
+  if(connectorIndicator?.node===node&&connectorIndicator?.anchor===anchor)return;
+  if(connectorIndicator){
+    connectorIndicator.node.classList.remove('showAnchors','connectorTarget');
+    connectorIndicator.node.querySelector('.connectorTargetAnchor')?.classList.remove('connectorTargetAnchor');
+  }
+  connectorIndicator=node?{node,anchor}:null;
+  if(!node)return;
+  node.classList.add('showAnchors');
+  if(anchor){
+    node.classList.add('connectorTarget');
+    node.querySelector(`[data-anchor="${anchor}"]`)?.classList.add('connectorTargetAnchor');
+  }
+}
+function previewConnectorHover(event){
+  const point=screenToWorld(event.clientX,event.clientY);
+  showConnectorAnchors(connectorObjectAt(event.clientX,event.clientY,point));
+}
+function beginConnectorGesture(event,details){
+  event.preventDefault();event.stopPropagation();
+  canvas.setPointerCapture(event.pointerId);
+  beginGesture();
+  connectorGesture={...details,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,preview:null,target:null};
+  app.classList.add('connectorMode','connectorDragging');
+}
+function startConnectorDraft(event){
+  const point=screenToWorld(event.clientX,event.clientY);
+  const source=connectorObjectAt(event.clientX,event.clientY,point);
+  if(!source)return;
+  const sourceAnchor=connectorAnchorNear(source,point);
+  beginConnectorGesture(event,{source,id:uid('c'),side:'to',opposite:{id:source.id,anchor:sourceAnchor}});
+  showConnectorAnchors(source);
+}
+function startEndpointDrag(side,event){
+  if(!event.isPrimary||event.button!==0||connectorGesture||spaceDown)return;
+  const object=getObj(state.selection[0]);
+  if(!object||object.type!=='connector'||object.locked)return;
+  beginConnectorGesture(event,{connector:object,id:object.id,side,opposite:object[side==='from'?'to':'from']});
+}
+function updateConnectorGesture(event){
+  const drag=connectorGesture;
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  const distance=Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY);
+  if(!drag.preview&&distance<CONNECTOR_DRAG_THRESHOLD)return;
+  drag.lastPointer={pointerId:event.pointerId,clientX:event.clientX,clientY:event.clientY,altKey:event.altKey};
+  const point=screenToWorld(event.clientX,event.clientY);
+  const candidate=event.altKey?null:connectorObjectAt(event.clientX,event.clientY,point,drag.target?.id);
+  const explicit=candidate&&connectorAnchorNear(candidate,point);
+  const otherObject=drag.opposite?.id&&getObj(drag.opposite.id);
+  const reference=otherObject?connectorCenter(otherObject):endpointPoint(drag.opposite,point);
+  // Connecting an object to itself requires an explicit second anchor.
+  const invalidSelf=candidate&&candidate.id===drag.opposite?.id&&(!explicit||!drag.opposite.anchor||explicit===drag.opposite.anchor);
+  drag.target=candidate&&!invalidSelf?{id:candidate.id,anchor:explicit||connectorFacingAnchor(candidate,reference)}:null;
+  const endpoint=drag.target||point;
+  if(drag.source){
+    const direction=drag.target?connectorCenter(candidate):point;
+    const from={id:drag.source.id,anchor:drag.opposite.anchor||connectorFacingAnchor(drag.source,direction)};
+    drag.preview={id:drag.id,type:'connector',from,to:endpoint,color:DEFAULTS.line,width:3,arrow:'end'};
+  }else{
+    drag.preview={...drag.connector,[drag.side]:endpoint};
+  }
+  showConnectorAnchors(drag.target&&candidate,drag.target?.anchor);
+  markDirty(true,false);
+}
+function displayedConnector(object){
+  return connectorGesture?.connector===object&&connectorGesture.preview||object;
+}
+function clearConnectorGesture(){
+  const pointerId=connectorGesture.pointerId;
+  connectorGesture=null;
+  showConnectorAnchors();
+  app.classList.remove('connectorDragging');
+  app.classList.toggle('connectorMode',state.tool==='connector');
+  if(canvas.hasPointerCapture(pointerId))canvas.releasePointerCapture(pointerId);
+}
+function cancelConnectorGesture(){
+  if(!connectorGesture)return;
+  clearConnectorGesture();
+  cancelGesture();
+  markDirty(true,false);
+}
+function finishConnectorGesture(event){
+  const drag=connectorGesture;
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  updateConnectorGesture(event);
+  const freeEndpoint=event.altKey&&canvas.contains(document.elementFromPoint(event.clientX,event.clientY));
+  if(!drag.preview||(!drag.target&&!freeEndpoint)){
+    cancelConnectorGesture();
+    return;
+  }
+  clearConnectorGesture();
+  if(drag.source){
+    state.objects.push({...drag.preview,z:zMax()+1});
+  }else{
+    drag.connector[drag.side]=drag.preview[drag.side];
+  }
+  commitGesture();
+  renderAll();
+}
+function updateConnectorModifier(event){
+  if(event.key==='Alt'&&connectorGesture?.lastPointer){
+    updateConnectorGesture({...connectorGesture.lastPointer,altKey:event.altKey});
+  }
 }
 
 /* Marquee and vector drag */
@@ -88,8 +195,9 @@ function updateMarquee(x,y){
 function endMarquee(){
   if(!marqueeStart)return;
   const r=marquee.getBoundingClientRect(),a=screenToWorld(r.left,r.top),b=screenToWorld(r.right,r.bottom),wr={x:a.x,y:a.y,w:b.x-a.x,h:b.y-a.y};
-  const hits=state.objects.filter(o=>rectIntersects(wr,objectBounds(o))).map(o=>o.id);
-  setSelection(marqueeStart.shift?[...state.selection,...hits]:hits);marquee.hidden=true;marqueeStart=null;
+  const hits=state.objects.filter(o=>rectIntersects(wr,objectBounds(o)));
+  const ids=groupingTargets(hits).map(o=>o.id);
+  setSelection(marqueeStart.shift?[...state.selection,...ids]:ids);marquee.hidden=true;marqueeStart=null;
 }
 
 /* Copy / paste graph-aware */
@@ -105,11 +213,13 @@ function pastePayload(payload,dx=28,dy=28){
   if(!payload?.objects?.length)return;
   discrete(()=>{
     const map=new Map(),groupMap=new Map(),newObjs=[];
+    const firstLayer=zMax()+1;
+    const layers=new Map(objectsByLayer(payload.objects).map((o,i)=>[o.id,firstLayer+i]));
     const remapGroup=n=>{if(n.groupId){if(!groupMap.has(n.groupId))groupMap.set(n.groupId,uid('g_'));n.groupId=groupMap.get(n.groupId)}};
     payload.objects.filter(o=>o.type!=='connector').forEach(o=>{const n=deep(o),old=n.id;n.id=uid(n.type==='drawing'?'d':'o');map.set(old,n.id);remapGroup(n);
-      if(isElement(n)){n.x+=dx;n.y+=dy}else if(n.type==='drawing')n.points=n.points.map(p=>({x:p.x+dx,y:p.y+dy}));n.z=zMax()+1;newObjs.push(n)});
+      if(isElement(n)){n.x+=dx;n.y+=dy}else if(n.type==='drawing')n.points=n.points.map(p=>({x:p.x+dx,y:p.y+dy}));n.z=layers.get(old);newObjs.push(n)});
     payload.objects.filter(o=>o.type==='connector').forEach(o=>{const n=deep(o);n.id=uid('c');remapGroup(n);if(n.from?.id&&map.has(n.from.id))n.from.id=map.get(n.from.id);else if(!n.from?.id){n.from.x+=dx;n.from.y+=dy}
-      if(n.to?.id&&map.has(n.to.id))n.to.id=map.get(n.to.id);else if(!n.to?.id){n.to.x+=dx;n.to.y+=dy}n.z=zMax()+1;newObjs.push(n)});
+      if(n.to?.id&&map.has(n.to.id))n.to.id=map.get(n.to.id);else if(!n.to?.id){n.to.x+=dx;n.to.y+=dy}n.z=layers.get(o.id);newObjs.push(n)});
     state.objects.push(...newObjs);state.selection=newObjs.map(o=>o.id);
   });renderAll();
 }
@@ -126,16 +236,42 @@ function deleteSelection(){
 }
 
 /* Mini map */
+const MINI_REFRESH_INTERVAL=1000/15;
+let miniLastRender=-Infinity,miniRenderTimer=null;
+function queueMiniRender(){
+  if(!miniWrap.classList.contains('show')||miniRenderTimer!==null)return;
+  const delay=MINI_REFRESH_INTERVAL-(performance.now()-miniLastRender);
+  if(delay<=0)renderMini();
+  else miniRenderTimer=setTimeout(renderMini,delay);
+}
 function renderMini(){
+  if(miniRenderTimer!==null){clearTimeout(miniRenderTimer);miniRenderTimer=null}
+  if(!miniWrap.classList.contains('show'))return;
+  miniLastRender=performance.now();
   const W=156,H=92,D=2;mm.clearRect(0,0,minimap.width,minimap.height);mm.save();mm.scale(D,D);mm.fillStyle='#fdfdfc';mm.fillRect(0,0,W,H);
-  if(!state.objects.length){mm.restore();return}
+  if(!state.objects.length){minimap._map=null;mm.restore();return}
   const viewA=screenToWorld(0,0),viewB=screenToWorld(innerWidth,innerHeight);
-  const all=[...state.objects.map(objectBounds),{x:viewA.x,y:viewA.y,w:viewB.x-viewA.x,h:viewB.y-viewA.y}];
-  const minX=Math.min(...all.map(b=>b.x)),minY=Math.min(...all.map(b=>b.y)),maxX=Math.max(...all.map(b=>b.x+b.w)),maxY=Math.max(...all.map(b=>b.y+b.h));
+  const items=objectsByLayer().map(object=>{
+    const points=object.type==='connector'?connectorPolyline(object):object.type==='drawing'?object.points:null;
+    return {object,points,bounds:points?boundsFromPoints(points):objectBounds(object)};
+  });
+  let minX=viewA.x,minY=viewA.y,maxX=viewB.x,maxY=viewB.y;
+  for(const {bounds:b} of items){
+    minX=Math.min(minX,b.x);minY=Math.min(minY,b.y);maxX=Math.max(maxX,b.x+b.w);maxY=Math.max(maxY,b.y+b.h);
+  }
   const pad=12,bw=maxX-minX||1,bh=maxY-minY||1,s=Math.min((W-pad*2)/bw,(H-pad*2)/bh),ox=(W-bw*s)/2-minX*s,oy=(H-bh*s)/2-minY*s;
-  state.objects.filter(o=>o.type==='connector').forEach(o=>{const pts=connectorPolyline(o,16);mm.strokeStyle=o.color||'#777';mm.lineWidth=1;mm.beginPath();mm.moveTo(ox+pts[0].x*s,oy+pts[0].y*s);pts.slice(1).forEach(p=>mm.lineTo(ox+p.x*s,oy+p.y*s));mm.stroke()});
-  state.objects.filter(o=>o.type==='drawing').forEach(o=>{if(o.points.length<2)return;mm.strokeStyle=o.color||'#777';mm.lineWidth=1;mm.beginPath();mm.moveTo(ox+o.points[0].x*s,oy+o.points[0].y*s);o.points.slice(1).forEach(p=>mm.lineTo(ox+p.x*s,oy+p.y*s));mm.stroke()});
-  state.objects.filter(isElement).forEach(o=>{const b=objectBounds(o);mm.fillStyle=o.type==='sticky'?(o.fill||'#fff2a7'):o.type==='image'?'#dfe2ff':'#e9e9e7';mm.fillRect(ox+b.x*s,oy+b.y*s,Math.max(3,b.w*s),Math.max(3,b.h*s))});
+  for(const {object:o,points:pts,bounds:b} of items){
+    if(pts){
+      if(pts.length<2)continue;
+      mm.strokeStyle=o.color||'#777';mm.lineWidth=1;mm.beginPath();
+      mm.moveTo(ox+pts[0].x*s,oy+pts[0].y*s);
+      for(let i=1;i<pts.length;i++)mm.lineTo(ox+pts[i].x*s,oy+pts[i].y*s);
+      mm.stroke();
+    }else{
+      mm.fillStyle=o.type==='sticky'?(o.fill||'#fff2a7'):o.type==='image'?'#dfe2ff':'#e9e9e7';
+      mm.fillRect(ox+b.x*s,oy+b.y*s,Math.max(3,b.w*s),Math.max(3,b.h*s));
+    }
+  }
   mm.strokeStyle='rgba(114,103,255,.8)';mm.lineWidth=1;mm.strokeRect(ox+viewA.x*s,oy+viewA.y*s,(viewB.x-viewA.x)*s,(viewB.y-viewA.y)*s);
   minimap._map={s,ox,oy};mm.restore();
 }
@@ -151,95 +287,10 @@ function fitContent(){
 }
 
 /* Export using the same object model */
-function wrapLines(ctx,text,maxWidth){
-  const lines=[];for(const raw of String(text||'').split('\n')){
-    if(raw===''){lines.push('');continue}
-    let line='';for(const ch of raw){const test=line+ch;if(ctx.measureText(test).width>maxWidth&&line){lines.push(line);line=ch}else line=test}lines.push(line)
-  }return lines;
-}
-function drawArrow(ctx,from,to,color,width){
-  const ang=Math.atan2(to.y-from.y,to.x-from.x),len=9+width*1.5;ctx.save();ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(to.x,to.y);
-  ctx.lineTo(to.x-len*Math.cos(ang-.42),to.y-len*Math.sin(ang-.42));ctx.lineTo(to.x-len*Math.cos(ang+.42),to.y-len*Math.sin(ang+.42));ctx.closePath();ctx.fill();ctx.restore();
-}
-function strokeSmoothCanvas(ctx,pts){
-  if(!pts||pts.length<2)return;
-  ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);
-  for(let i=1;i<pts.length-1;i++){
-    const p=pts[i],n=pts[i+1];
-    ctx.quadraticCurveTo(p.x,p.y,(p.x+n.x)/2,(p.y+n.y)/2);
-  }
-  const last=pts.at(-1);ctx.lineTo(last.x,last.y);ctx.stroke();
-}
-function paintExportDrawing(ctx,o){
-  ctx.strokeStyle=o.color||DEFAULTS.line;
-  ctx.lineWidth=o.width||4;
-  ctx.lineCap='round';
-  ctx.lineJoin='round';
-  strokeSmoothCanvas(ctx,o.points);
-}
 async function buildExportCanvas(selectionOnly=false){
+  const objects=deep(state.objects);
   const selected=new Set(state.selection);
-  const objects=deep(selectionOnly?state.objects.filter(o=>selected.has(o.id)):state.objects);
-  if(!objects.length)return showToast(selectionOnly?'请先选中要导出的内容':'画布还没有内容');
-  const b=unionBounds(objects),pad=selectionOnly?36:80,minX=b.x-pad,minY=b.y-pad;
-  const W=Math.max(selectionOnly?1:420,b.w+pad*2),H=Math.max(selectionOnly?1:320,b.h+pad*2);
-  const scale=Math.min(2,3600/Math.max(W,H)),out=document.createElement('canvas');out.width=Math.ceil(W*scale);out.height=Math.ceil(H*scale);
-  const ctx=out.getContext('2d');ctx.scale(scale,scale);ctx.translate(-minX,-minY);ctx.fillStyle='#fbfbfa';ctx.fillRect(minX,minY,W,H);
-  const byLayer=(a,b)=>(a.z||1)-(b.z||1);
-  for(const o of objects.filter(x=>x.type==='connector').sort(byLayer)){
-    const g=connectorGeom(o);ctx.strokeStyle=o.color||DEFAULTS.line;ctx.lineWidth=o.width||3;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(g.p1.x,g.p1.y);ctx.bezierCurveTo(g.c1.x,g.c1.y,g.c2.x,g.c2.y,g.p2.x,g.p2.y);ctx.stroke();
-    if(o.arrow==='end'||o.arrow==='both')drawArrow(ctx,g.c2,g.p2,o.color||DEFAULTS.line,o.width||3);
-    if(o.arrow==='both')drawArrow(ctx,g.c1,g.p1,o.color||DEFAULTS.line,o.width||3);
-    if(o.label){
-      const t=clamp(o.label.t??.5,0,1),pt=bezierPoint(g,t),tan=cubicTangent(g,t),len=Math.hypot(tan.x,tan.y)||1,n={x:-tan.y/len,y:tan.x/len},off=o.label.offset??-14;
-      const x=pt.x+n.x*off,y=pt.y+n.y*off;
-      ctx.font='600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';ctx.textBaseline='middle';ctx.textAlign='center';
-      const tw=ctx.measureText(o.label.text||'关系').width+14;ctx.fillStyle='rgba(251,251,250,.96)';ctx.fillRect(x-tw/2,y-10,tw,20);
-      ctx.fillStyle='#171717';ctx.fillText(o.label.text||'关系',x,y);
-    }
-  }
-  const drawings=objects.filter(o=>o.type==='drawing').sort(byLayer);
-  for(const o of drawings){
-    if(!o.highlighter)paintExportDrawing(ctx,o);
-  }
-  const imgs=new Map();
-  for(const o of objects.filter(x=>x.type==='image')){
-    if(imgs.has(o.assetId))continue;
-    const url=await getAssetUrl(o.assetId);
-    if(!url)throw new Error('图片资源不可用');
-    const img=new Image();
-    img.src=url;
-    await img.decode();
-    imgs.set(o.assetId,img);
-  }
-  for(const o of objects.filter(isElement).sort(byLayer)){
-    const cx=o.x+o.w/2,cy=o.y+o.h/2;ctx.save();ctx.translate(cx,cy);ctx.rotate((o.rot||0)*Math.PI/180);ctx.translate(-cx,-cy);
-    if(o.type==='sticky'){
-      ctx.shadowColor='rgba(35,35,35,.13)';ctx.shadowBlur=24;ctx.shadowOffsetY=10;ctx.fillStyle=o.fill||DEFAULTS.sticky;ctx.fillRect(o.x,o.y,o.w,o.h);ctx.shadowColor='transparent';
-      ctx.fillStyle='#171717';ctx.font='560 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';ctx.textBaseline='top';
-      const lines=wrapLines(ctx,o.text,o.w-46);lines.forEach((line,i)=>ctx.fillText(line,o.x+23,o.y+24+i*31));
-    }else if(o.type==='text'){
-      ctx.fillStyle=o.color||DEFAULTS.text;ctx.font=`${o.fontWeight||600} ${o.fontSize||28}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;ctx.textBaseline='top';
-      wrapLines(ctx,o.text,o.w).forEach((line,i)=>ctx.fillText(line,o.x+4,o.y+4+i*(o.fontSize||28)*1.35));
-    }else if(o.type==='rect'||o.type==='circle'){
-      ctx.lineWidth=o.strokeWidth||2;ctx.strokeStyle=o.stroke||DEFAULTS.shapeStroke;if(o.fill&&o.fill!=='transparent'){ctx.fillStyle=o.fill}
-      ctx.beginPath();if(o.type==='rect')ctx.rect(o.x,o.y,o.w,o.h);else ctx.ellipse(cx,cy,o.w/2,o.h/2,0,0,Math.PI*2);
-      if(o.fill&&o.fill!=='transparent')ctx.fill();ctx.stroke();
-    }else if(o.type==='image'){
-      const img=imgs.get(o.assetId);
-      if(o.imageStyle==='card'){
-        ctx.shadowColor='rgba(30,30,30,.13)';ctx.shadowBlur=22;ctx.shadowOffsetY=9;ctx.fillStyle='#fff';ctx.fillRect(o.x,o.y,o.w,o.h);ctx.shadowColor='transparent';
-        ctx.drawImage(img,o.x+6,o.y+6,o.w-12,o.h-12);
-      }else{
-        ctx.drawImage(img,o.x,o.y,o.w,o.h);
-      }
-    }
-    ctx.restore();
-  }
-  ctx.globalAlpha=HIGHLIGHT_OPACITY;
-  for(const o of drawings){
-    if(o.highlighter)paintExportDrawing(ctx,o);
-  }
-  ctx.globalAlpha=1;
-  return out;
+  const toDraw=selectionOnly?objects.filter(o=>selected.has(o.id)):objects;
+  if(!toDraw.length)return showToast(selectionOnly?'请先选中要导出的内容':'画布还没有内容');
+  return renderBoardCanvas(toDraw,getAssetUrl,selectionOnly?'selection':'board',objects);
 }
