@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('treeboardDesktop', {
   getHomeData: () => ipcRenderer.invoke('home:get-data'),
+  getRecentPreviewSource: (filePath) => ipcRenderer.invoke('recent:get-preview-source', filePath),
   newBoard: () => ipcRenderer.invoke('board:new'),
   openBoardDialog: () => ipcRenderer.invoke('board:open-dialog'),
   openBoardPath: (filePath) => ipcRenderer.invoke('board:open-path', filePath),
